@@ -30,10 +30,10 @@ var GLOBAL_TEST_MODE = false;
 // ==========================================
 // 活動行事曆資訊設定
 // ==========================================
-var EVENT_TITLE = "exYahoo Summer Party";
-var EVENT_START = "2026-07-25T18:00:00+08:00"; // 請修改為實際活動開始時間 (ISO 格式)
-var EVENT_END = "2026-07-25T21:30:00+08:00";   // 請修改為實際活動結束時間 (ISO 格式)
-var EVENT_LOCATION = "台北市某精心挑選的 Party 空間";
+var EVENT_TITLE = "2026退虎會 exYahoo Summer Party";
+var EVENT_START = "2026-07-24T18:00:00+08:00";
+var EVENT_END = "2026-07-24T21:00:00+08:00";
+var EVENT_LOCATION = "台北松山意舍酒店 17 樓 Que 原木燒烤餐廳";
 var EVENT_DESCRIPTION = "歡迎參加 exYahoo Summer Party！請憑門票信中的 QR Code 掃描入場。";
 var CALENDAR_ID = "primary"; // 使用預設的 Google 日曆，也可以替換成特定日曆 ID 
 
