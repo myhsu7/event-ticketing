@@ -455,6 +455,11 @@ function inviteAttendeeToCalendar(email, name) {
       Logger.log("已成功建立新的主活動，Event ID: " + event.getId());
     }
     
+    // 確保來賓隱私：關閉「查看受邀者名單」、「修改活動」與「邀請他人」功能
+    event.setGuestsCanSeeGuests(false);
+    event.setGuestsCanModify(false);
+    event.setGuestsCanInviteOthers(false);
+    
     // 將使用者加入受邀者名單 (Google 會自動發信給對應信箱，包括 Gmail、Yahoo 等)
     event.addGuest(email);
     Logger.log("已成功邀請來賓加入日曆活動：" + name + " (" + email + ")");
