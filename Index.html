@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>exYahoo Summer Party Check-in</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --primary: #6001d2; /* exYahoo Purple */
+      --primary-light: #8a3ffc;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --error: #ef4444;
+      --dark-bg: #0b071e;
+      --card-bg: rgba(255, 255, 255, 0.06);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --text-main: #ffffff;
+      --text-muted: #a5a1b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at 50% 50%, #1e1145 0%, var(--dark-bg) 100%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+
+    /* Ambient Glow Effects */
+    .glow-bg {
+      position: absolute;
+      width: 300px;
+      height: 300px;
+      border-radius: 50%;
+      background: var(--primary-light);
+      filter: blur(120px);
+      opacity: 0.15;
+      z-index: 1;
+      pointer-events: none;
+    }
+    
+    .glow-bg.top-left {
+      top: -50px;
+      left: -50px;
+    }
+    
+    .glow-bg.bottom-right {
+      bottom: -50px;
+      right: -50px;
+    }
+
+    /* Success / Warning / Error glows dynamic override */
+    body.status-success .glow-bg {
+      background: var(--success);
+      opacity: 0.12;
+    }
+    body.status-warning .glow-bg {
+      background: var(--warning);
+      opacity: 0.12;
+    }
+    body.status-error .glow-bg {
+      background: var(--error);
+      opacity: 0.12;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 440px;
+      z-index: 10;
+      position: relative;
+    }
+
+    /* Glassmorphism Card */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-radius: 24px;
+      padding: 35px 30px;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      animation: cardAppear 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      transform: translateY(30px);
+      opacity: 0;
+    }
+
+    @keyframes cardAppear {
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    /* Status Circle Icons */
+    .icon-wrapper {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 25px auto;
+      position: relative;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      animation: pulseIcon 2s infinite ease-in-out;
+    }
+
+    @keyframes pulseIcon {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
+    }
+
+    .icon-wrapper svg {
+      width: 44px;
+      height: 44px;
+      stroke-width: 2.5;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Success Theme */
+    .status-success .icon-wrapper {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.3);
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+    }
+    .status-success svg {
+      stroke: var(--success);
+    }
+    .status-success .status-badge {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    /* Warning Theme */
+    .status-warning .icon-wrapper {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: rgba(245, 158, 11, 0.3);
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.2);
+    }
+    .status-warning svg {
+      stroke: var(--warning);
+    }
+    .status-warning .status-badge {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.25);
+    }
+
+    /* Error / Unauthorized Theme */
+    .status-error .icon-wrapper, .status-unauthorized .icon-wrapper {
+      background: rgba(239, 68, 68, 0.1);
+      border-color: rgba(239, 68, 68, 0.3);
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+    }
+    .status-error svg, .status-unauthorized svg {
+      stroke: var(--error);
+    }
+    .status-error .status-badge, .status-unauthorized .status-badge {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+
+    /* Badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 16px;
+      border-radius: 50px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+    }
+
+    .title {
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 12px;
+      letter-spacing: -0.02em;
+    }
+
+    .message {
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 30px;
+    }
+
+    /* Data Card Table */
+    .data-table {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 30px;
+      text-align: left;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .data-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    
+    .data-row:first-child {
+      padding-top: 0;
+    }
+
+    .data-label {
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 400;
+    }
+
+    .data-val {
+      color: var(--text-main);
+      font-size: 15px;
+      font-weight: 600;
+      max-width: 60%;
+      word-break: break-all;
+      text-align: right;
+    }
+
+    /* Button styling */
+    .btn {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 14px;
+      padding: 16px 24px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 8px 16px rgba(96, 1, 210, 0.25);
+      transition: all 0.25s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 24px rgba(96, 1, 210, 0.4);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    /* Decorative footer */
+    .footer {
+      margin-top: 30px;
+      font-size: 12px;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      opacity: 0.6;
+    }
+
+    /* Checkmark drawing animation */
+    .path {
+      stroke-dasharray: 1000;
+      stroke-dashoffset: 1000;
+      animation: dash 0.8s ease-in-out forwards;
+      animation-delay: 0.2s;
+    }
+
+    @keyframes dash {
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+  </style>
+</head>
+<?
+  // 決定此頁面呈現哪種 CSS Class
+  var pageClass = "status-unauthorized";
+  var badgeText = "未授權";
+  var statusTitle = "存取遭拒";
+  var displayMsg = "本網頁僅限活動主辦方簽到使用，請勿私自存取。";
+
+  if (typeof status !== 'undefined') {
+    if (status === "success") {
+      pageClass = "status-success";
+      badgeText = "簽到成功";
+      statusTitle = "Welcome!";
+      displayMsg = message || "簽到完成，歡迎進場！";
+    } else if (status === "warning") {
+      pageClass = "status-warning";
+      badgeText = "重複簽到";
+      statusTitle = "Already In";
+      displayMsg = message || "此門票先前已完成簽到，請勿重複入場。";
+    } else if (status === "error") {
+      pageClass = "status-error";
+      badgeText = "簽到失敗";
+      statusTitle = "Error";
+      displayMsg = message || "查無此門票資訊或連線逾時。";
+    }
+  }
+?>
+<body class="<?= pageClass ?>">
+  <div class="glow-bg top-left"></div>
+  <div class="glow-bg bottom-right"></div>
+
+  <div class="container">
+    <div class="card">
+      
+      <!-- 動態圖示區 -->
+      <div class="icon-wrapper">
+        <? if (pageClass === 'status-success') { ?>
+          <svg viewBox="0 0 24 24">
+            <polyline class="path" points="20 6 9 17 4 12"></polyline>
+          </svg>
+        <? } else if (pageClass === 'status-warning') { ?>
+          <svg viewBox="0 0 24 24">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        <? } else { ?>
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="15" y1="9" x2="9" y2="15"></line>
+            <line x1="9" y1="9" x2="15" y2="15"></line>
+          </svg>
+        <? } ?>
+      </div>
+
+      <!-- 狀態標籤與主標題 -->
+      <div class="status-badge"><?= badgeText ?></div>
+      <h1 class="title"><?= statusTitle ?></h1>
+      <p class="message"><?= displayMsg ?></p>
+
+      <!-- 來賓資訊卡片 -->
+      <? if (typeof attendeeName !== 'undefined' && attendeeName) { ?>
+        <div class="data-table">
+          <div class="data-row">
+            <div class="data-label">來賓姓名</div>
+            <div class="data-val"><?= attendeeName ?></div>
+          </div>
+          <? if (typeof checkInTime !== 'undefined' && checkInTime) { ?>
+            <div class="data-row">
+              <div class="data-label">
+                <?= (pageClass === 'status-warning') ? '首次簽到時間' : '簽到時間' ?>
+              </div>
+              <div class="data-val"><?= checkInTime ?></div>
+            </div>
+          <? } ?>
+          <? if (typeof uuid !== 'undefined' && uuid) { ?>
+            <div class="data-row">
+              <div class="data-label">票券編號</div>
+              <div class="data-val" style="font-family: monospace; font-size:12px;"><?= uuid.substring(0, 8) ?>...</div>
+            </div>
+          <? } ?>
+        </div>
+      <? } ?>
+
+      <!-- 底部按鈕：現場操作點擊後返回準備狀態，或關閉 -->
+      <button class="btn" onclick="closeWindowOrNext()">準備下一次掃描</button>
+    </div>
+  </div>
+
+  <div class="footer">exYahoo Summer Party &copy; 2026</div>
+
+  <script>
+    function closeWindowOrNext() {
+      // 在多數行動端掃描器內，關閉當前 webview 最實用
+      // 如果是用一般的 browser 開啟，則可以導向一個說明畫面或直接嘗試關閉
+      if (window.opener) {
+        window.close();
+      } else {
+        // 提示操作人員可以重新啟動掃描器
+        alert("請直接開啟掃描器 APP 掃描下一張門票！");
+      }
+    }
+  </script>
+</body>
+</html>
