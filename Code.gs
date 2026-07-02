@@ -144,8 +144,8 @@ function handleEdit(e) {
         Logger.log("寄送信件失敗: " + err.toString());
       }
       
-      // 5. 邀請至 Google 日曆 (透過 Google 日曆發送邀請)
-      inviteAttendeeToCalendar(email, name);
+      // 5. 邀請至 Google 日曆 (透過 Google 日曆發送邀請，帶入 uuid 以整合 QR Code)
+      inviteAttendeeToCalendar(email, name, uuid);
     }
   }
 }
@@ -220,7 +220,7 @@ function processPendingTickets(isTestMode) {
         }
         
         // 批次執行時也自動發送日曆邀請
-        inviteAttendeeToCalendar(email, name);
+        inviteAttendeeToCalendar(email, name, uuid);
       }
     }
   }
@@ -462,38 +462,43 @@ function getActiveResponseSheet() {
  * 取得或建立主活動 (Master Event) 並將使用者加為受邀者
  * 這會對 Google 帳號與非 Google 帳號 (如 Yahoo) 自動發出 iCal 日曆邀請信。
  */
-function inviteAttendeeToCalendar(email, name) {
+function inviteAttendeeToCalendar(email, name, uuid) {
   try {
-    var props = PropertiesService.getScriptProperties();
-    var eventId = props.getProperty('MASTER_EVENT_ID');
     var calendar = CalendarApp.getCalendarById(CALENDAR_ID) || CalendarApp.getDefaultCalendar();
-    var event = null;
     
-    if (eventId) {
-      try {
-        event = calendar.getEventById(eventId);
-      } catch (e) {
-        Logger.log("找不到之前的 MASTER_EVENT_ID，將重新建立一個主活動。");
-      }
-    }
+    // 取得 Web App URL 與 Token 用以產生 QR Code 連結
+    var token = getSecretToken();
+    var webAppUrl = getWebAppUrl();
+    var checkInUrl = webAppUrl ? (webAppUrl + "?uuid=" + uuid + "&token=" + token) : "";
     
-    if (!event) {
-      event = calendar.createEvent(EVENT_TITLE, new Date(EVENT_START), new Date(EVENT_END), {
-        location: EVENT_LOCATION,
-        description: EVENT_DESCRIPTION
-      });
-      props.setProperty('MASTER_EVENT_ID', event.getId());
-      Logger.log("已成功建立新的主活動，Event ID: " + event.getId());
-    }
+    // 產生 QR Code 圖片連結
+    var qrCodeImageUrl = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=" + encodeURIComponent(checkInUrl);
+    
+    // 產生個人化的活動說明 (將專屬 QR Code 連結寫入日曆說明中)
+    var personalDesc = "親愛的 " + name + " 您好：\n\n" +
+                       "歡迎參加 2026退虎會 exYahoo Summer Party！\n" +
+                       "本活動憑 QR Code 掃描入場，您可以在手機日曆中直接點擊下方連結出示您的入場券：\n\n" +
+                       "🎫 您的專屬門票 QR Code 連結：\n" + qrCodeImageUrl + "\n\n" +
+                       "--- \n" +
+                       "門票編號 (UUID): " + uuid + "\n" +
+                       "活動地點: " + EVENT_LOCATION + "\n" +
+                       "活動時間: " + EVENT_START.substring(0,10) + " 18:00 - 21:00\n\n" +
+                       "期待與您相見！";
+    
+    // 為每位來賓建立獨立的日曆活動，以夾帶個別的專屬 QR Code 連結
+    var event = calendar.createEvent(EVENT_TITLE, new Date(EVENT_START), new Date(EVENT_END), {
+      location: EVENT_LOCATION,
+      description: personalDesc
+    });
     
     // 確保來賓隱私：關閉「查看受邀者名單」、「修改活動」與「邀請他人」功能
     event.setGuestsCanSeeGuests(false);
     event.setGuestsCanModify(false);
     event.setGuestsCanInviteOthers(false);
     
-    // 將使用者加入受邀者名單 (Google 會自動發信給對應信箱，包括 Gmail、Yahoo 等)
+    // 將該來賓加入此專屬活動
     event.addGuest(email);
-    Logger.log("已成功邀請來賓加入日曆活動：" + name + " (" + email + ")");
+    Logger.log("已成功為來賓建立專屬日曆活動並發送邀請：" + name + " (" + email + ")");
   } catch (err) {
     Logger.log("日曆邀請失敗: " + err.toString());
   }
