@@ -157,6 +157,10 @@ function processPendingTickets(isTestMode) {
   var sheet = getActiveResponseSheet();
   var headerMap = getHeaderMap(sheet);
   
+  // 偵錯日誌：印出目前抓取的工作表與所有讀取到的標頭
+  Logger.log("【偵錯】目前執行的工作表分頁: '" + sheet.getName() + "'");
+  Logger.log("【偵錯】該分頁讀取到的所有標頭: " + JSON.stringify(Object.keys(headerMap)));
+  
   var statusCol = headerMap['對帳狀態'];
   var uuidCol = headerMap['Ticket UUID'];
   var emailCol = headerMap['電子郵件地址'] || headerMap['電子郵件'] || headerMap['Email'];
