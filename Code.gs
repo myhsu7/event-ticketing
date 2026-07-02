@@ -35,7 +35,7 @@ var EVENT_START = "2026-07-24T18:00:00+08:00";
 var EVENT_END = "2026-07-24T21:00:00+08:00";
 var EVENT_LOCATION = "台北松山意舍酒店 17 樓 Que 原木燒烤餐廳";
 var EVENT_DESCRIPTION = "歡迎參加 exYahoo Summer Party！請憑門票信中的 QR Code 掃描入場。";
-var CALENDAR_ID = "primary"; // 使用預設的 Google 日曆，也可以替換成特定日曆 ID 
+var CALENDAR_ID = "dd4d904608c5422751a1d50c122fabe01106eac06778b8679defd8757ca67043@group.calendar.google.com"; // 使用退虎會專用日曆 ID 
 
 // 取得指令碼屬性中的設定
 function getSecretToken() {
