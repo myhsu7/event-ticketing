@@ -320,6 +320,11 @@
       badgeText = "重複簽到";
       statusTitle = "Already In";
       displayMsg = message || "此門票先前已完成簽到，請勿重複入場。";
+    } else if (status === "early") {
+      pageClass = "status-warning";
+      badgeText = "尚未開放";
+      statusTitle = "Not Started";
+      displayMsg = message || "本活動尚未開放簽到。";
     } else if (status === "error") {
       pageClass = "status-error";
       badgeText = "簽到失敗";

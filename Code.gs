@@ -343,6 +343,7 @@ function doGet(e) {
   var title = "簽到結果 - exYahoo";
   if (result.status === "success") title = "簽到成功 - " + result.name;
   else if (result.status === "warning") title = "重複簽到 - " + result.name;
+  else if (result.status === "early") title = "尚未開放 - " + result.name;
   else title = "簽到失敗";
   
   return template.evaluate()
@@ -395,9 +396,26 @@ function processCheckIn(uuid) {
   // 取得來賓姓名與當前入場狀態
   var name = sheet.getRange(targetRow, nameCol).getValue();
   var checkInStatus = sheet.getRange(targetRow, statusCol).getValue();
+  var noteCol = headerMap['備註'] || headerMap['Remarks'] || headerMap['備註欄'];
+  var noteValue = noteCol ? sheet.getRange(targetRow, noteCol).getValue().toString().toLowerCase() : "";
+  var isTestRow = noteValue.indexOf("test") !== -1;
+  
+  // 3. 檢查是否已開放簽到 (活動開始前 1 小時開放) - 測試列除外
+  var now = new Date();
+  var eventStartTime = new Date(EVENT_START);
+  var checkInOpenTime = new Date(eventStartTime.getTime() - (60 * 60 * 1000));
+  
+  if (now < checkInOpenTime && !isTestRow) {
+    var formattedOpenTime = Utilities.formatDate(checkInOpenTime, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm");
+    return {
+      status: "early",
+      name: name,
+      time: "",
+      message: "本活動尚未開放簽到！\n開放簽到時間為：" + formattedOpenTime + " 起。\n期待您的光臨！"
+    };
+  }
   
   // 格式化當前時間
-  var now = new Date();
   var formattedTime = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
   
   // 判斷入場狀態
