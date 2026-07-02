@@ -88,6 +88,7 @@ function handleEdit(e) {
   var emailCol = headerMap['電子郵件地址'] || headerMap['電子郵件'] || headerMap['Email'];
   var nameCol = headerMap['姓名'] || headerMap['聯絡人姓名'];
   var noteCol = headerMap['備註'] || headerMap['Remarks'] || headerMap['備註欄'];
+  var ticketStatusCol = headerMap['門票發送狀態'] || headerMap['門票狀態'] || headerMap['入場券發送狀態'];
   
   if (!statusCol || !uuidCol || !emailCol || !nameCol) {
     Logger.log("找不到對應欄位，請檢查試算表首列的標頭名稱是否包含：'對帳狀態'、'Ticket UUID'、'電子郵件地址'、'姓名'");
@@ -111,17 +112,20 @@ function handleEdit(e) {
       }
       
       var currentUuid = sheet.getRange(row, uuidCol).getValue();
+      var currentTicketStatus = ticketStatusCol ? sheet.getRange(row, ticketStatusCol).getValue() : "";
       
-      // 如果已經有 UUID 且「不是測試列」，代表之前已發過門票，避免重複發送
-      // 若是測試列，則允許重新產生 UUID 並發信以便重複測試
-      if (currentUuid && !isTestRow) {
-        Logger.log("Row " + row + " 已經有 UUID，不重複發送門票。");
+      // 如果已經有 UUID 或已經標記為「已發送」，且「不是測試列」，代表之前已發過門票，避免重複發送
+      if ((currentUuid || currentTicketStatus === "已發送") && !isTestRow) {
+        Logger.log("Row " + row + " 已經發送過門票，跳過處理。");
         return;
       }
       
-      // 2. 產生 UUID
+      // 2. 產生 UUID 并更新發送狀態
       var uuid = Utilities.getUuid();
       sheet.getRange(row, uuidCol).setValue(uuid);
+      if (ticketStatusCol && !isTestRow) {
+        sheet.getRange(row, ticketStatusCol).setValue("已發送");
+      }
       
       // 3. 取得聯絡人資訊
       var email = sheet.getRange(row, emailCol).getValue();
@@ -158,6 +162,7 @@ function processPendingTickets(isTestMode) {
   var emailCol = headerMap['電子郵件地址'] || headerMap['電子郵件'] || headerMap['Email'];
   var nameCol = headerMap['姓名'] || headerMap['聯絡人姓名'];
   var noteCol = headerMap['備註'] || headerMap['Remarks'] || headerMap['備註欄'];
+  var ticketStatusCol = headerMap['門票發送狀態'] || headerMap['門票狀態'] || headerMap['入場券發送狀態'];
   
   if (!statusCol || !uuidCol || !emailCol || !nameCol) {
     Logger.log("找不到對應欄位，請確認標頭包含：'對帳狀態'、'Ticket UUID'、'電子郵件地址'、'姓名'");
@@ -188,15 +193,19 @@ function processPendingTickets(isTestMode) {
     var statusValue = sheet.getRange(row, statusCol).getValue();
     if (statusValue === "匯款完成") {
       var currentUuid = sheet.getRange(row, uuidCol).getValue();
+      var currentTicketStatus = ticketStatusCol ? sheet.getRange(row, ticketStatusCol).getValue() : "";
       
-      // 非測試列若已有 UUID 則跳過
-      if (currentUuid && !isTestRow) {
+      // 非測試列若已有 UUID 或已標記「已發送」則跳過
+      if ((currentUuid || currentTicketStatus === "已發送") && !isTestRow) {
         continue;
       }
       
       // 產生或沿用 UUID (測試列每次都產生新 UUID 方便重複測試)
       var uuid = (isTestRow) ? Utilities.getUuid() : (currentUuid || Utilities.getUuid());
       sheet.getRange(row, uuidCol).setValue(uuid);
+      if (ticketStatusCol && !isTestRow) {
+        sheet.getRange(row, ticketStatusCol).setValue("已發送");
+      }
       
       var email = sheet.getRange(row, emailCol).getValue();
       var name = sheet.getRange(row, nameCol).getValue();
