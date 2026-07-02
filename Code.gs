@@ -27,6 +27,16 @@
 // 測試模式開關：若設定為 true，則所有手動執行或觸發編輯時，都只會處理「備註」欄位含有 "test" (不分大小寫) 的行數。
 var GLOBAL_TEST_MODE = false; 
 
+// ==========================================
+// 活動行事曆資訊設定
+// ==========================================
+var EVENT_TITLE = "exYahoo Summer Party";
+var EVENT_START = "2026-07-25T18:00:00+08:00"; // 請修改為實際活動開始時間 (ISO 格式)
+var EVENT_END = "2026-07-25T21:30:00+08:00";   // 請修改為實際活動結束時間 (ISO 格式)
+var EVENT_LOCATION = "台北市某精心挑選的 Party 空間";
+var EVENT_DESCRIPTION = "歡迎參加 exYahoo Summer Party！請憑門票信中的 QR Code 掃描入場。";
+var CALENDAR_ID = "primary"; // 使用預設的 Google 日曆，也可以替換成特定日曆 ID 
+
 // 取得指令碼屬性中的設定
 function getSecretToken() {
   return PropertiesService.getScriptProperties().getProperty('SECRET_TOKEN') || 'default_secret_token';
@@ -129,6 +139,9 @@ function handleEdit(e) {
       } catch (err) {
         Logger.log("寄送信件失敗: " + err.toString());
       }
+      
+      // 5. 邀請至 Google 日曆 (透過 Google 日曆發送邀請)
+      inviteAttendeeToCalendar(email, name);
     }
   }
 }
@@ -196,6 +209,9 @@ function processPendingTickets(isTestMode) {
         } catch (err) {
           Logger.log("批次寄送失敗 Row " + row + ": " + err.toString());
         }
+        
+        // 批次執行時也自動發送日曆邀請
+        inviteAttendeeToCalendar(email, name);
       }
     }
   }
@@ -219,9 +235,13 @@ function sendTicketEmail(email, name, uuid) {
   // 組合 QR Code 圖片網址 (使用第三方 QR Server API，無流量限制)
   var qrCodeImageUrl = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=" + encodeURIComponent(checkInUrl);
   
+  // 產生個人行事曆快速加入連結
+  var gCalLink = getGoogleCalendarLink(EVENT_TITLE, EVENT_START, EVENT_END, EVENT_DESCRIPTION, EVENT_LOCATION);
+  var yCalLink = getYahooCalendarLink(EVENT_TITLE, EVENT_START, EVENT_END, EVENT_DESCRIPTION, EVENT_LOCATION);
+  
   var subject = "【exYahoo Summer Party】您的入場門票已核發！";
   
-  // 漂亮的 HTML 信件範本
+  // 漂亮的 HTML 信件範本 (包含 Google 與 Yahoo 日曆加入按鈕)
   var htmlBody = 
     "<div style='font-family: \"Helvetica Neue\", Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);'>" +
       "<div style='text-align: center; margin-bottom: 20px;'>" +
@@ -236,9 +256,20 @@ function sendTicketEmail(email, name, uuid) {
         "</div>" +
         "<div style='font-family: monospace; font-size: 11px; color: #9ca3af; margin-top: 5px;'>Ticket ID: " + uuid + "</div>" +
       "</div>" +
+      
+      // 行事曆快速加入按鈕區
+      "<div style='margin: 20px 0; padding: 18px; background-color: #f9fafb; border-radius: 12px; text-align: center; border: 1px solid #f3f4f6;'>" +
+        "<p style='font-size: 13px; color: #4b5563; font-weight: 600; margin: 0 0 12px 0;'>📅 快速加入我的個人行事曆：</p>" +
+        "<div style='margin-bottom: 8px;'>" +
+          "<a href='" + gCalLink + "' target='_blank' style='display: inline-block; background-color: #4285f4; color: #ffffff; padding: 8px 14px; border-radius: 8px; font-size: 12px; text-decoration: none; font-weight: 600; margin: 0 5px;'>+ Google 日曆</a>" +
+          "<a href='" + yCalLink + "' target='_blank' style='display: inline-block; background-color: #6001d2; color: #ffffff; padding: 8px 14px; border-radius: 8px; font-size: 12px; text-decoration: none; font-weight: 600; margin: 0 5px;'>+ Yahoo 日曆</a>" +
+        "</div>" +
+        "<p style='font-size: 11px; color: #9ca3af; margin: 0;'>（Gmail 使用者亦將自動收到正式 Google 日曆受邀通知）</p>" +
+      "</div>" +
+      
       "<div style='margin-top: 20px; font-size: 13px; color: #6b7280; line-height: 1.6;'>" +
-        "<p style='margin: 0 0 5px 0;'><strong>📅 活動時間：</strong> 2026年 Summer (詳細時間請參照活動公告)</p>" +
-        "<p style='margin: 0 0 5px 0;'><strong>📍 活動地點：</strong> exYahoo Summer Party 會場</p>" +
+        "<p style='margin: 0 0 5px 0;'><strong>📅 活動時間：</strong> 2026年 7月 25日 18:00 - 21:30</p>" +
+        "<p style='margin: 0 0 5px 0;'><strong>📍 活動地點：</strong> " + EVENT_LOCATION + "</p>" +
         "<p style='margin: 0; color: #ef4444;'>⚠️ 注意事項：本票券僅限一人單次入場使用，請勿將 QR Code 轉傳給他人。</p>" +
       "</div>" +
     "</div>";
@@ -394,4 +425,83 @@ function getHeaderMap(sheet) {
     }
   }
   return map;
+}
+
+/**
+ * 取得或建立主活動 (Master Event) 並將使用者加為受邀者
+ * 這會對 Google 帳號與非 Google 帳號 (如 Yahoo) 自動發出 iCal 日曆邀請信。
+ */
+function inviteAttendeeToCalendar(email, name) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var eventId = props.getProperty('MASTER_EVENT_ID');
+    var calendar = CalendarApp.getCalendarById(CALENDAR_ID) || CalendarApp.getDefaultCalendar();
+    var event = null;
+    
+    if (eventId) {
+      try {
+        event = calendar.getEventById(eventId);
+      } catch (e) {
+        Logger.log("找不到之前的 MASTER_EVENT_ID，將重新建立一個主活動。");
+      }
+    }
+    
+    if (!event) {
+      event = calendar.createEvent(EVENT_TITLE, new Date(EVENT_START), new Date(EVENT_END), {
+        location: EVENT_LOCATION,
+        description: EVENT_DESCRIPTION
+      });
+      props.setProperty('MASTER_EVENT_ID', event.getId());
+      Logger.log("已成功建立新的主活動，Event ID: " + event.getId());
+    }
+    
+    // 將使用者加入受邀者名單 (Google 會自動發信給對應信箱，包括 Gmail、Yahoo 等)
+    event.addGuest(email);
+    Logger.log("已成功邀請來賓加入日曆活動：" + name + " (" + email + ")");
+  } catch (err) {
+    Logger.log("日曆邀請失敗: " + err.toString());
+  }
+}
+
+/**
+ * 產生 Yahoo 日曆的新增活動連結
+ */
+function getYahooCalendarLink(title, startIso, endIso, desc, loc) {
+  var st = convertToUtcString(startIso);
+  var et = convertToUtcString(endIso);
+  return "https://calendar.yahoo.com/?v=60&view=d&type=20" +
+         "&title=" + encodeURIComponent(title) +
+         "&st=" + st +
+         "&et=" + et +
+         "&desc=" + encodeURIComponent(desc) +
+         "&in_loc=" + encodeURIComponent(loc);
+}
+
+/**
+ * 產生 Google 日曆的新增活動連結
+ */
+function getGoogleCalendarLink(title, startIso, endIso, desc, loc) {
+  var st = convertToUtcString(startIso);
+  var et = convertToUtcString(endIso);
+  return "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+         "&text=" + encodeURIComponent(title) +
+         "&dates=" + st + "/" + et +
+         "&details=" + encodeURIComponent(desc) +
+         "&location=" + encodeURIComponent(loc);
+}
+
+/**
+ * 輔助函式：將 ISO 字串轉換成 UTC 格式 (YYYYMMDDTHHMMSSZ)
+ */
+function convertToUtcString(isoString) {
+  var date = new Date(isoString);
+  var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+  return date.getUTCFullYear() +
+         pad(date.getUTCMonth() + 1) +
+         pad(date.getUTCDate()) +
+         'T' +
+         pad(date.getUTCHours()) +
+         pad(date.getUTCMinutes()) +
+         pad(date.getUTCSeconds()) +
+         'Z';
 }
