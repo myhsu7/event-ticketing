@@ -154,7 +154,7 @@ function handleEdit(e) {
  * 批次處理未發送的門票 (支援測試模式與正式模式)
  */
 function processPendingTickets(isTestMode) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = getActiveResponseSheet();
   var headerMap = getHeaderMap(sheet);
   
   var statusCol = headerMap['對帳狀態'];
@@ -343,7 +343,7 @@ function doGet(e) {
  * 簽到核心 logic (搜尋 Sheet 並更新狀態)
  */
 function processCheckIn(uuid) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0]; // 預設使用第一個工作表
+  var sheet = getActiveResponseSheet();
   var headerMap = getHeaderMap(sheet);
   
   var uuidCol = headerMap['Ticket UUID'];
@@ -431,9 +431,27 @@ function getHeaderMap(sheet) {
     var headerName = headers[i].toString().trim();
     if (headerName) {
       map[headerName] = i + 1; // 1-based index
+      map[headerName.toLowerCase()] = i + 1; // case-insensitive mapping
     }
   }
   return map;
+}
+
+/**
+ * 自動搜尋所有分頁，尋找真正包含「對帳狀態」的報名工作表。
+ * 避免因為試算表有空白的首個工作表 (Sheet1) 導致系統抓錯分頁。
+ */
+function getActiveResponseSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var sheet = sheets[i];
+    var headerMap = getHeaderMap(sheet);
+    if (headerMap['對帳狀態'] || headerMap['對帳狀態'.toLowerCase()]) {
+      return sheet;
+    }
+  }
+  return ss.getSheets()[0]; // 備用：若都找不到，返回第一個
 }
 
 /**
