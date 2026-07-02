@@ -248,6 +248,13 @@ function sendTicketEmail(email, name, uuid) {
   var gCalLink = getGoogleCalendarLink(EVENT_TITLE, EVENT_START, EVENT_END, EVENT_DESCRIPTION, EVENT_LOCATION);
   var yCalLink = getYahooCalendarLink(EVENT_TITLE, EVENT_START, EVENT_END, EVENT_DESCRIPTION, EVENT_LOCATION);
   
+  // 格式化活動時間顯示 (以台灣時區為準)
+  var startDate = new Date(EVENT_START);
+  var endDate = new Date(EVENT_END);
+  var formattedEventTime = Utilities.formatDate(startDate, "GMT+8", "yyyy年 MM月 dd日 HH:mm") + 
+                           " - " + 
+                           Utilities.formatDate(endDate, "GMT+8", "HH:mm");
+  
   var subject = "【exYahoo Summer Party】您的入場門票已核發！";
   
   // 漂亮的 HTML 信件範本 (包含 Google 與 Yahoo 日曆加入按鈕)
@@ -277,7 +284,7 @@ function sendTicketEmail(email, name, uuid) {
       "</div>" +
       
       "<div style='margin-top: 20px; font-size: 13px; color: #6b7280; line-height: 1.6;'>" +
-        "<p style='margin: 0 0 5px 0;'><strong>📅 活動時間：</strong> 2026年 7月 25日 18:00 - 21:30</p>" +
+        "<p style='margin: 0 0 5px 0;'><strong>📅 活動時間：</strong> " + formattedEventTime + "</p>" +
         "<p style='margin: 0 0 5px 0;'><strong>📍 活動地點：</strong> " + EVENT_LOCATION + "</p>" +
         "<p style='margin: 0; color: #ef4444;'>⚠️ 注意事項：本票券僅限一人單次入場使用，請勿將 QR Code 轉傳給他人。</p>" +
       "</div>" +
