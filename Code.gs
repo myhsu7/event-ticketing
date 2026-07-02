@@ -20,6 +20,13 @@
  *    - WEB_APP_URL : 貼上剛剛複製的 Web App URL。
  */
 
+// ==========================================
+// 系統全域設定
+// ==========================================
+
+// 測試模式開關：若設定為 true，則所有手動執行或觸發編輯時，都只會處理「備註」欄位含有 "test" (不分大小寫) 的行數。
+var GLOBAL_TEST_MODE = false; 
+
 // 取得指令碼屬性中的設定
 function getSecretToken() {
   return PropertiesService.getScriptProperties().getProperty('SECRET_TOKEN') || 'default_secret_token';
@@ -30,17 +37,30 @@ function getWebAppUrl() {
 }
 
 /**
+ * 手動執行：發送未發送的門票 (生產環境)
+ */
+function runSendTicketsProduction() {
+  processPendingTickets(false);
+}
+
+/**
+ * 手動執行：測試發送門票 (僅處理「備註」含有 'test' 的資料)
+ * 在測試模式下，即使該列已經有 Ticket UUID，也會重新產生並發送，以便重複測試。
+ */
+function runSendTicketsTest() {
+  processPendingTickets(true);
+}
+
+/**
  * 當試算表被編輯時觸發 (需要設定為 Installable Trigger 才能有發信權限)
  */
 function handleEdit(e) {
   var sheet = e.range.getSheet();
   
-  // 只處理表單回應的工作表 (通常名稱為 "表單回應 1" 或類似)
-  // 如果您的工作表名稱不同，可以修改此處，或是只要偵測欄位符合就處理
+  // 只處理表單回應的工作表
   var sheetName = sheet.getName();
   if (sheetName.indexOf("表單回應") === -1 && sheetName.indexOf("Responses") === -1 && sheetName !== "Sheet1") {
-    // 若不是回應頁面就跳過，以策安全
-    // 您也可以拔除此限制
+    return;
   }
   
   var range = e.range;
@@ -53,11 +73,11 @@ function handleEdit(e) {
   // 取得標頭欄位映射
   var headerMap = getHeaderMap(sheet);
   
-  // 檢查是否包含必要的欄位，如果沒有，代表欄位名稱不符
   var statusCol = headerMap['對帳狀態'];
   var uuidCol = headerMap['Ticket UUID'];
   var emailCol = headerMap['電子郵件地址'] || headerMap['電子郵件'] || headerMap['Email'];
   var nameCol = headerMap['姓名'] || headerMap['聯絡人姓名'];
+  var noteCol = headerMap['備註'] || headerMap['Remarks'] || headerMap['備註欄'];
   
   if (!statusCol || !uuidCol || !emailCol || !nameCol) {
     Logger.log("找不到對應欄位，請檢查試算表首列的標頭名稱是否包含：'對帳狀態'、'Ticket UUID'、'電子郵件地址'、'姓名'");
@@ -70,19 +90,30 @@ function handleEdit(e) {
     
     // 當狀態變更為「匯款完成」
     if (statusValue === "匯款完成") {
+      
+      // 1. 測試模式過濾：若全域測試模式開啟，但該列備註不含 "test"，則跳過
+      var noteValue = noteCol ? sheet.getRange(row, noteCol).getValue().toString().toLowerCase() : "";
+      var isTestRow = noteValue.indexOf("test") !== -1;
+      
+      if (GLOBAL_TEST_MODE && !isTestRow) {
+        Logger.log("[測試模式] 跳過未標記 'test' 的列: " + row);
+        return;
+      }
+      
       var currentUuid = sheet.getRange(row, uuidCol).getValue();
       
-      // 如果已經有 UUID，代表之前已發過門票，避免重複發送
-      if (currentUuid) {
+      // 如果已經有 UUID 且「不是測試列」，代表之前已發過門票，避免重複發送
+      // 若是測試列，則允許重新產生 UUID 並發信以便重複測試
+      if (currentUuid && !isTestRow) {
         Logger.log("Row " + row + " 已經有 UUID，不重複發送門票。");
         return;
       }
       
-      // 1. 產生 UUID
+      // 2. 產生 UUID
       var uuid = Utilities.getUuid();
       sheet.getRange(row, uuidCol).setValue(uuid);
       
-      // 2. 取得聯絡人資訊
+      // 3. 取得聯絡人資訊
       var email = sheet.getRange(row, emailCol).getValue();
       var name = sheet.getRange(row, nameCol).getValue();
       
@@ -91,15 +122,84 @@ function handleEdit(e) {
         return;
       }
       
-      // 3. 發送門票郵件
+      // 4. 發送門票郵件
       try {
         sendTicketEmail(email, name, uuid);
-        Logger.log("成功發送門票信件給：" + name + " (" + email + ")");
+        Logger.log((isTestRow ? "[測試] " : "") + "成功發送門票信件給：" + name + " (" + email + ")");
       } catch (err) {
         Logger.log("寄送信件失敗: " + err.toString());
       }
     }
   }
+}
+
+/**
+ * 批次處理未發送的門票 (支援測試模式與正式模式)
+ */
+function processPendingTickets(isTestMode) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var headerMap = getHeaderMap(sheet);
+  
+  var statusCol = headerMap['對帳狀態'];
+  var uuidCol = headerMap['Ticket UUID'];
+  var emailCol = headerMap['電子郵件地址'] || headerMap['電子郵件'] || headerMap['Email'];
+  var nameCol = headerMap['姓名'] || headerMap['聯絡人姓名'];
+  var noteCol = headerMap['備註'] || headerMap['Remarks'] || headerMap['備註欄'];
+  
+  if (!statusCol || !uuidCol || !emailCol || !nameCol) {
+    Logger.log("找不到對應欄位，請確認標頭包含：'對帳狀態'、'Ticket UUID'、'電子郵件地址'、'姓名'");
+    return;
+  }
+  
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    Logger.log("沒有資料可處理。");
+    return;
+  }
+  
+  var count = 0;
+  for (var row = 2; row <= lastRow; row++) {
+    var noteValue = noteCol ? sheet.getRange(row, noteCol).getValue().toString().toLowerCase() : "";
+    var isTestRow = noteValue.indexOf("test") !== -1;
+    
+    // 如果是測試模式，只處理備註含 "test" 的列
+    if (isTestMode && !isTestRow) {
+      continue;
+    }
+    
+    // 如果是正式模式，且開啟了全域測試，安全起見只處理測試列
+    if (!isTestMode && GLOBAL_TEST_MODE && !isTestRow) {
+      continue;
+    }
+    
+    var statusValue = sheet.getRange(row, statusCol).getValue();
+    if (statusValue === "匯款完成") {
+      var currentUuid = sheet.getRange(row, uuidCol).getValue();
+      
+      // 非測試列若已有 UUID 則跳過
+      if (currentUuid && !isTestRow) {
+        continue;
+      }
+      
+      // 產生或沿用 UUID (測試列每次都產生新 UUID 方便重複測試)
+      var uuid = (isTestRow) ? Utilities.getUuid() : (currentUuid || Utilities.getUuid());
+      sheet.getRange(row, uuidCol).setValue(uuid);
+      
+      var email = sheet.getRange(row, emailCol).getValue();
+      var name = sheet.getRange(row, nameCol).getValue();
+      
+      if (email) {
+        try {
+          sendTicketEmail(email, name, uuid);
+          Logger.log((isTestRow ? "[測試] " : "[正式] ") + "批次發送門票給：" + name + " (" + email + ")");
+          count++;
+        } catch (err) {
+          Logger.log("批次寄送失敗 Row " + row + ": " + err.toString());
+        }
+      }
+    }
+  }
+  Logger.log("執行完畢，共處理 " + count + " 筆資料。");
 }
 
 /**
