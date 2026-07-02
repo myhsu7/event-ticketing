@@ -1,0 +1,4 @@
+.clasp.json
+key.txt
+*.swp
+.DS_Store
