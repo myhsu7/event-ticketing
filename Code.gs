@@ -67,9 +67,9 @@ function runSendTicketsTest() {
 function handleEdit(e) {
   var sheet = e.range.getSheet();
   
-  // 只處理表單回應的工作表
+  // 只處理名稱為「匯款對帳」的工作表
   var sheetName = sheet.getName();
-  if (sheetName.indexOf("表單回應") === -1 && sheetName.indexOf("Responses") === -1 && sheetName !== "Sheet1") {
+  if (sheetName !== "匯款對帳") {
     return;
   }
   
@@ -443,15 +443,12 @@ function getHeaderMap(sheet) {
  */
 function getActiveResponseSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheets = ss.getSheets();
-  for (var i = 0; i < sheets.length; i++) {
-    var sheet = sheets[i];
-    var headerMap = getHeaderMap(sheet);
-    if (headerMap['對帳狀態'] || headerMap['對帳狀態'.toLowerCase()]) {
-      return sheet;
-    }
+  var sheet = ss.getSheetByName("匯款對帳");
+  if (sheet) {
+    return sheet;
   }
-  return ss.getSheets()[0]; // 備用：若都找不到，返回第一個
+  // 備用：若找不到名為「匯款對帳」的分頁，則使用第一個分頁
+  return ss.getSheets()[0];
 }
 
 /**
