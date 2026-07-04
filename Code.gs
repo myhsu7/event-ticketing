@@ -575,9 +575,9 @@ function convertToUtcString(isoString) {
 // ==========================================
 var SPREADSHEET_ID = "1g-6SaVCkIZASiZO11Pb9mAsktOOB6rZkWi6bqa-IUQg";
 
-// Telegram 異常通知設定 (選填，留空則不發送)
-var TELEGRAM_BOT_TOKEN = "8551328354:AAF2jD02kYnILVK3jZiB7n55SSJ3_aWeLhw"; // 兆豐自動對帳機器人 Token
-var TELEGRAM_CHAT_ID = "7594339427";   // 明彥個人 Chat ID
+// Telegram 異常通知設定 (從 Google 雲端「指令碼屬性」動態讀取，安全不洩漏至 GitHub)
+var TELEGRAM_BOT_TOKEN = PropertiesService.getScriptProperties().getProperty('TELEGRAM_BOT_TOKEN') || "";
+var TELEGRAM_CHAT_ID = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID') || "";
 
 // 異常通知電子信箱 (選填，留空則預設寄給執行腳本的您本人)
 var ADMIN_NOTIFY_EMAIL = "mingyen@gmail.com"; 
