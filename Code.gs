@@ -646,7 +646,7 @@ function runAutoReconciliation() {
           bankTransactions.push(tx);
           Logger.log("解析成功 -> 金額: " + tx.amount + ", 後五碼: " + tx.lastFive + " (Msg ID: " + msgId + ")");
         } else {
-          var errorMsg = "信件解析異常 (Msg ID: " + msgId + ") - 原因: " + tx.errorReason + " (本文摘要: " + message.getSnippet() + ")";
+          var errorMsg = "信件解析異常 (Msg ID: " + msgId + ") - 原因: " + tx.errorReason + " (本文摘要: " + body.substring(0, 100).replace(/\n/g, " ") + ")";
           anomalies.push(errorMsg);
           Logger.log(errorMsg);
         }
