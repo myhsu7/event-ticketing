@@ -1318,3 +1318,79 @@ function updateReconciliationSerial(reconSheet, name, lastFive, newSerialStr) {
     }
   }
 }
+
+
+/**
+ * 檢查「表單回覆 1」中，尚未完成匯款且「沒有填寫匯款後五碼」的報名者名單。
+ * 目前為測試階段，僅會將名單輸出至執行日誌，跳過實際寄送 Email 步驟。
+ */
+function checkUnpaidAndNoLastFive() {
+  Logger.log("--- 開始檢查尚未對帳且未填後五碼的名單 ---");
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var regSheet = ss.getSheetByName("報名名單");
+  var formSheet = ss.getSheetByName("表單回覆 1");
+  
+  if (!regSheet || !formSheet) {
+    Logger.log("找不到必要的分頁：'報名名單' 或 '表單回覆 1'");
+    return;
+  }
+  
+  // 1. 收集「報名名單」中已完成對帳的來賓 (以 姓名_Email 作為 Key)
+  var regLastRow = regSheet.getLastRow();
+  var completedKeys = {};
+  if (regLastRow > 1) {
+    var regData = regSheet.getRange(2, 1, regLastRow - 1, 14).getValues();
+    for (var i = 0; i < regData.length; i++) {
+      var name = regData[i][3 - 1].toString().trim(); // C: 姓名
+      var email = regData[i][4 - 1].toString().trim().toLowerCase(); // D: Email
+      var status = regData[i][14 - 1].toString().trim(); // N: 對帳狀態
+      
+      if (status === "匯款完成") {
+        completedKeys[name + "_" + email] = true;
+      }
+    }
+  }
+  
+  // 2. 遍歷「表單回覆 1」，找出未完成對帳且沒填後五碼的人
+  var formLastRow = formSheet.getLastRow();
+  if (formLastRow <= 1) {
+    Logger.log("表單回覆 1 中無資料。");
+    return;
+  }
+  
+  var formHeaderMap = getHeaderMap(formSheet);
+  var formData = formSheet.getRange(2, 1, formLastRow - 1, formSheet.getLastColumn()).getValues();
+  var unpaidList = [];
+  
+  for (var j = 0; j < formData.length; j++) {
+    var rowValues = formData[j];
+    var parsed = getFormRowData(rowValues, formHeaderMap);
+    
+    var name = parsed.name.toString().trim();
+    var email = parsed.email.toString().trim().toLowerCase();
+    var lastFive = parsed.lastFive.toString().trim();
+    
+    // 檢查此人是否已在名單中完成對帳
+    var isCompleted = completedKeys[name + "_" + email] === true;
+    
+    // 條件：未對帳完成，且後五碼欄位為空（或無有效數字）
+    var cleanLastFive = lastFive.replace(/\D/g, '');
+    if (!isCompleted && cleanLastFive.length === 0) {
+      unpaidList.push({
+        rowNum: j + 2,
+        name: name,
+        email: email,
+        timestamp: parsed.timestamp
+      });
+    }
+  }
+  
+  // 3. 輸出名單至日誌 (Skips Email Sending)
+  Logger.log("=== 檢查結果：共有 " + unpaidList.length + " 筆符合條件 (未匯款且未填後五碼) ===");
+  for (var k = 0; k < unpaidList.length; k++) {
+    var p = unpaidList[k];
+    Logger.log("【未對帳未填五碼】#" + (k + 1) + " | 姓名: " + p.name + " | 信箱: " + p.email + " | 填表時間: " + p.timestamp + " (表單列號: " + p.rowNum + ")");
+  }
+  Logger.log("--------------------------------------------------");
+  Logger.log("提示：已跳過寄信通知步驟 (Skip Send Email)。未來若要啟用寄信，可在此函式內加入提醒信發送邏輯。");
+}
