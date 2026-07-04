@@ -1324,6 +1324,19 @@ function updateReconciliationSerial(reconSheet, name, lastFive, newSerialStr) {
  * 檢查「表單回覆 1」中，尚未完成匯款且「沒有填寫匯款後五碼」的報名者名單。
  * 目前為測試階段，僅會將名單輸出至執行日誌，跳過實際寄送 Email 步驟。
  */
+// ==========================================
+// 未匯款催告信設定
+// ==========================================
+// 是否啟用未匯款/未填後五碼催款信寄送 (true 為正式寄送，false 為僅在日誌中進行測試模擬)
+var ENABLE_UNPAID_REMINDER_EMAIL = false; 
+
+// 提醒信中的匯款銀行帳戶資訊 (請替換為您的實際收款帳號)
+var REMINDER_BANK_INFO = "兆豐銀行 (017) 帳號: 030-xx-xxxxx-x";
+
+/**
+ * 檢查「表單回覆 1」中，尚未完成匯款且「沒有填寫匯款後五碼」的報名者名單。
+ * 支援一鍵開關寄信提醒功能。
+ */
 function checkUnpaidAndNoLastFive() {
   Logger.log("--- 開始檢查尚未對帳且未填後五碼的名單 ---");
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1385,12 +1398,68 @@ function checkUnpaidAndNoLastFive() {
     }
   }
   
-  // 3. 輸出名單至日誌 (Skips Email Sending)
+  // 3. 輸出名單與執行寄信
   Logger.log("=== 檢查結果：共有 " + unpaidList.length + " 筆符合條件 (未匯款且未填後五碼) ===");
+  var sendCount = 0;
+  
   for (var k = 0; k < unpaidList.length; k++) {
     var p = unpaidList[k];
-    Logger.log("【未對帳未填五碼】#" + (k + 1) + " | 姓名: " + p.name + " | 信箱: " + p.email + " | 填表時間: " + p.timestamp + " (表單列號: " + p.rowNum + ")");
+    Logger.log("【處理中】#" + (k + 1) + " | 姓名: " + p.name + " | 信箱: " + p.email + " | 填表時間: " + p.timestamp + " (表單列號: " + p.rowNum + ")");
+    
+    if (ENABLE_UNPAID_REMINDER_EMAIL) {
+      if (p.email) {
+        try {
+          sendUnpaidReminderEmail(p.email, p.name);
+          Logger.log("   -> [發送成功] 已成功寄送催款信給 " + p.name + " (" + p.email + ")");
+          sendCount++;
+        } catch (err) {
+          Logger.log("   -> [發送失敗] 寄信給 " + p.name + " 失敗: " + err.toString());
+        }
+      } else {
+        Logger.log("   -> [警告] 該列無 Email，跳過發送。");
+      }
+    } else {
+      Logger.log("   -> [模擬測試] 未啟用寄信，僅於日誌記錄。");
+    }
   }
+  
   Logger.log("--------------------------------------------------");
-  Logger.log("提示：已跳過寄信通知步驟 (Skip Send Email)。未來若要啟用寄信，可在此函式內加入提醒信發送邏輯。");
+  if (ENABLE_UNPAID_REMINDER_EMAIL) {
+    Logger.log("對帳催告信寄送完畢，共發出 " + sendCount + " 封提醒信。");
+  } else {
+    Logger.log("提示：目前為測試模式 (ENABLE_UNPAID_REMINDER_EMAIL = false)。若確認名單無誤，請將該變數設為 true 以正式發送提醒信！");
+  }
+}
+
+/**
+ * 發送未匯款提醒信
+ */
+function sendUnpaidReminderEmail(email, name) {
+  var subject = "【匯款提醒】2026退虎會 exYahoo Summer Party 報名確認提醒";
+  
+  // 美化的 HTML 催款信範本
+  var htmlBody = 
+    "<div style='font-family: sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #eaeaea; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);'>" +
+      "<h2 style='color: #6001d2; border-bottom: 2px solid #6001d2; padding-bottom: 12px; margin-top: 0;'>報名匯款與資料確認提醒</h2>" +
+      "<p>親愛的 <strong>" + name + "</strong> 您好：</p>" +
+      "<p>感謝您報名參加 <strong>2026退虎會 exYahoo Summer Party</strong>！</p>" +
+      "<p>系統目前尚未偵測到您的匯款完成紀錄，或是您在報名表單中尚未填寫「匯款帳號後五碼」。</p>" +
+      "<div style='background-color: #f7f5fc; border-left: 4px solid #6001d2; padding: 18px; margin: 25px 0; border-radius: 6px;'>" +
+        "<p style='margin: 0; font-weight: bold; color: #6001d2;'>💡 匯款與確認說明：</p>" +
+        "<p style='margin: 10px 0 0 0;'>1. 請將報名費 <strong>新台幣 1,000 元</strong> 匯至以下指定帳戶：</p>" +
+        "<p style='margin: 6px 0 0 15px; font-weight: bold; color: #444;'>" + REMINDER_BANK_INFO + "</p>" +
+        "<p style='margin: 12px 0 0 0;'>2. 匯款完成後，您可以<strong>直接回覆此信件</strong>告知您的<strong>「匯款後五碼」與「姓名」</strong>，或至原表單修改回覆，以便工作人員進行自動對帳與門票發送。</p>" +
+      "</div>" +
+      "<p>如有任何疑問，歡迎隨時回覆本信件與主辦小組聯絡。期待您的參與！</p>" +
+      "<br>" +
+      "<p style='margin-top: 15px; font-size: 0.95em; color: #666;'>" +
+        "2026退虎會 exYahoo 工作小組 敬上" +
+      "</p>" +
+    "</div>";
+
+  MailApp.sendEmail({
+    to: email,
+    subject: subject,
+    htmlBody: htmlBody
+  });
 }
