@@ -1202,3 +1202,119 @@ function isFormRowImported(formRowValues, formHeaderMap, regData) {
   }
   return false;
 }
+
+
+/**
+ * 手動執行或自動清理：檢查報名名單中的報名序號是否重複，重新分配重複的序號，並同步更新至匯款對帳的 H 欄。
+ * 同時會將所有序號統一標準化為三位數格式 (如 074、075)。
+ */
+function fixDuplicateSerials() {
+  Logger.log("--- 開始執行序號去重與格式整理流程 ---");
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var regSheet = ss.getSheetByName("報名名單");
+  var reconSheet = ss.getSheetByName("匯款對帳");
+  
+  if (!regSheet || !reconSheet) {
+    Logger.log("找不到必要的分頁：'報名名單' 或 '匯款對帳'");
+    return;
+  }
+  
+  var regLastRow = regSheet.getLastRow();
+  if (regLastRow <= 1) {
+    Logger.log("報名名單無資料。");
+    return;
+  }
+  
+  var regRange = regSheet.getRange(2, 1, regLastRow - 1, 14);
+  var regData = regRange.getValues();
+  
+  // 第一輪：收集所有非重複的序號，並找出最大值
+  var maxSerial = 0;
+  for (var i = 0; i < regData.length; i++) {
+    var rawSerial = regData[i][2 - 1].toString().trim(); // B: 序號
+    var num = parseInt(rawSerial.replace(/\D/g, ''), 10);
+    if (!isNaN(num) && num > maxSerial) {
+      maxSerial = num;
+    }
+  }
+  
+  Logger.log("目前最大序號值: " + maxSerial);
+  
+  var nextAvailableSerial = maxSerial + 1;
+  var seenInts = {};
+  var changesCount = 0;
+  
+  // 第二輪：遍歷名單，檢查重複並重新分配
+  for (var i = 0; i < regData.length; i++) {
+    var rowNum = i + 2;
+    var rawSerial = regData[i][2 - 1].toString().trim(); // B: 序號
+    var name = regData[i][3 - 1].toString().trim();      // C: 姓名
+    var lastFive = normalizeLastFive(regData[i][10 - 1]); // J: 後五碼
+    
+    var num = parseInt(rawSerial.replace(/\D/g, ''), 10);
+    
+    if (isNaN(num)) {
+      num = nextAvailableSerial;
+      nextAvailableSerial++;
+    }
+    
+    var isDuplicate = seenInts[num] === true;
+    
+    if (isDuplicate) {
+      // 序號重複，分配全新序號
+      var oldNum = num;
+      var newNum = nextAvailableSerial;
+      nextAvailableSerial++;
+      seenInts[newNum] = true;
+      
+      var newSerialStr = ("00" + newNum).slice(-3);
+      
+      // 更新報名名單
+      var cell = regSheet.getRange(rowNum, 2);
+      cell.setNumberFormat("@");
+      cell.setValue("'" + newSerialStr);
+      
+      Logger.log("列 " + rowNum + " (" + name + "): 序號 " + oldNum + " 重複，已重配為 " + newSerialStr);
+      
+      // 同步更新「匯款對帳」分頁的 H 欄
+      updateReconciliationSerial(reconSheet, name, lastFive, newSerialStr);
+      changesCount++;
+    } else {
+      seenInts[num] = true;
+      // 確保格式是漂亮的三碼字串
+      var correctSerialStr = ("00" + num).slice(-3);
+      if (rawSerial !== correctSerialStr) {
+        var cell = regSheet.getRange(rowNum, 2);
+        cell.setNumberFormat("@");
+        cell.setValue("'" + correctSerialStr);
+        Logger.log("列 " + rowNum + " (" + name + "): 序號格式自 " + rawSerial + " 修正為 " + correctSerialStr);
+        updateReconciliationSerial(reconSheet, name, lastFive, correctSerialStr);
+        changesCount++;
+      }
+    }
+  }
+  
+  Logger.log("序號整理完畢，共更新/格式化了 " + changesCount + " 筆資料。");
+}
+
+/**
+ * 輔助更新「匯款對帳」的 H 欄 (對應報名序號)
+ */
+function updateReconciliationSerial(reconSheet, name, lastFive, newSerialStr) {
+  var lastRow = reconSheet.getLastRow();
+  if (lastRow <= 1) return;
+  
+  var data = reconSheet.getRange(2, 1, lastRow - 1, 11).getValues(); // A to K 欄
+  for (var i = 0; i < data.length; i++) {
+    var rowNum = i + 2;
+    var rowName = data[i][9 - 1].toString().trim(); // I: 姓名
+    var rowLastFive = normalizeLastFive(data[i][7 - 1]); // G: 存摺備註 (後五碼)
+    
+    if (rowName === name && rowLastFive === lastFive) {
+      var cellH = reconSheet.getRange(rowNum, 8); // H: 對應報名序號
+      cellH.setNumberFormat("@");
+      cellH.setValue("'" + newSerialStr);
+      Logger.log("-> 成功同步更新「匯款對帳」第 " + rowNum + " 列的 H 欄序號為 " + newSerialStr);
+    }
+  }
+}
