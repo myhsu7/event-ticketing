@@ -568,3 +568,515 @@ function convertToUtcString(isoString) {
          pad(date.getUTCSeconds()) +
          'Z';
 }
+
+
+// ==========================================
+// 兆豐銀行自動對帳系統設定
+// ==========================================
+var SPREADSHEET_ID = "1g-6SaVCkIZASiZO11Pb9mAsktOOB6rZkWi6bqa-IUQg";
+
+// Telegram 異常通知設定 (選填，留空則不發送)
+var TELEGRAM_BOT_TOKEN = ""; // 例如: "123456789:ABCdefGhI..."
+var TELEGRAM_CHAT_ID = "";   // 例如: "987654321"
+
+// 異常通知電子信箱 (選填，留空則預設寄給執行腳本的您本人)
+var ADMIN_NOTIFY_EMAIL = ""; 
+
+/**
+ * 建立自動對帳的三個定時觸發器 (12:00, 18:00, 21:00)
+ * 您可以在 Apps Script 編輯器中手動執行此函式一次即可完成設定。
+ */
+function setupAutoReconciliationTrigger() {
+  // 清除舊的同名觸發器，防重複
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "runAutoReconciliation") {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  
+  // 建立每日 12:00, 18:00, 21:00 觸發器 (Google 會在該整點的前後數分鐘內觸發)
+  ScriptApp.newTrigger("runAutoReconciliation")
+    .timeBased()
+    .everyDays(1)
+    .atHour(12)
+    .create();
+    
+  ScriptApp.newTrigger("runAutoReconciliation")
+    .timeBased()
+    .everyDays(1)
+    .atHour(18)
+    .create();
+    
+  ScriptApp.newTrigger("runAutoReconciliation")
+    .timeBased()
+    .everyDays(1)
+    .atHour(21)
+    .create();
+    
+  Logger.log("已成功建立 12:00, 18:00, 21:00 的自動對帳時間驅動觸發器！");
+}
+
+/**
+ * 自動對帳系統主入口 (由定時觸發器呼叫)
+ */
+function runAutoReconciliation() {
+  Logger.log("--- 開始執行自動對帳流程 ---");
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // 1. 讀取 Gmail 信件
+  var query = 'from:service@emailer.megabank.com.tw subject:"兆豐銀行數位存款" subject:"轉入交易" is:unread';
+  var threads = GmailApp.search(query);
+  Logger.log("搜尋到未讀信件 Thread 數: " + threads.length);
+  
+  var bankTransactions = [];
+  var anomalies = [];
+  
+  for (var i = 0; i < threads.length; i++) {
+    var messages = threads[i].getMessages();
+    for (var j = 0; j < messages.length; j++) {
+      var message = messages[j];
+      if (message.isUnread()) {
+        var body = message.getPlainBody();
+        var msgId = message.getId();
+        
+        var tx = parseMegaBankEmail(body);
+        if (tx.isValid) {
+          tx.messageId = msgId;
+          bankTransactions.push(tx);
+          Logger.log("解析成功 -> 金額: " + tx.amount + ", 後五碼: " + tx.lastFive + " (Msg ID: " + msgId + ")");
+        } else {
+          var errorMsg = "信件解析異常 (Msg ID: " + msgId + ") - 原因: " + tx.errorReason + " (本文摘要: " + message.getSnippet() + ")";
+          anomalies.push(errorMsg);
+          Logger.log(errorMsg);
+        }
+        
+        // 標示為已讀，防止重複處理
+        message.markRead();
+      }
+    }
+  }
+  
+  if (bankTransactions.length === 0 && anomalies.length === 0) {
+    Logger.log("無任何新交易或異常，對帳結束。");
+    return;
+  }
+  
+  // 2. 依「後五碼」將交易分組
+  var bankTxGrouped = {};
+  for (var k = 0; k < bankTransactions.length; k++) {
+    var tx = bankTransactions[k];
+    if (!bankTxGrouped[tx.lastFive]) {
+      bankTxGrouped[tx.lastFive] = [];
+    }
+    bankTxGrouped[tx.lastFive].push(tx);
+  }
+  
+  var regSheet = ss.getSheetByName("報名名單");
+  var formSheet = ss.getSheetByName("表單回覆 1");
+  
+  if (!regSheet || !formSheet) {
+    var sheetError = "找不到必要的試算表分頁：'報名名單' 或 '表單回覆 1'";
+    anomalies.push(sheetError);
+    sendReconciliationAlert(anomalies);
+    return;
+  }
+  
+  var regHeaderMap = getHeaderMap(regSheet);
+  var formHeaderMap = getHeaderMap(formSheet);
+  
+  var anyChanges = false;
+  
+  // 3. 遍歷每組後五碼，進行比對與寫入
+  for (var lastFive in bankTxGrouped) {
+    var txs = bankTxGrouped[lastFive];
+    var B = txs.length; // 銀行通知筆數
+    
+    // A. 檢查「報名名單」是否存在此後五碼 (J 欄，index 10)
+    var regMatches = findRowsInSheet(regSheet, 10, lastFive);
+    var M = regMatches.length; // 報名名單筆數
+    
+    if (M > 0) {
+      // 情況 A：已存在於報名名單
+      if (B === M) {
+        // 筆數相符，將這些列的 N 欄 (匯款完成，Col 14) 改為「匯款完成」
+        for (var r = 0; r < regMatches.length; r++) {
+          regSheet.getRange(regMatches[r], 14).setValue("匯款完成");
+        }
+        Logger.log("後五碼 [" + lastFive + "] 已存在報名名單且筆數相符 (" + B + " 筆)，已更新狀態為匯款完成。");
+        anyChanges = true;
+      } else {
+        // 筆數不符，列為異常
+        var countError = "後五碼 [" + lastFive + "] 筆數不符：銀行通知有 " + B + " 筆，但報名名單中有 " + M + " 筆。已跳過，需人工核對。";
+        anomalies.push(countError);
+        Logger.log(countError);
+      }
+    } else {
+      // 情況 B：不在報名名單，去「表單回覆 1」比對 (I 欄，index 9)
+      var formMatches = findRowsInSheet(formSheet, 9, lastFive);
+      var F = formMatches.length; // 表單回覆筆數
+      
+      if (F > 0) {
+        // 排序表單回覆 (依 L 欄「匯款時間」由早到晚)
+        formMatches.sort(function(rowA, rowB) {
+          var timeA = getValAsDate(formSheet.getRange(rowA, 12).getValue());
+          var timeB = getValAsDate(formSheet.getRange(rowB, 12).getValue());
+          return timeA.getTime() - timeB.getTime();
+        });
+        
+        if (B === F) {
+          // 筆數相符，全數寫入 (Append) 報名名單
+          for (var f = 0; f < formMatches.length; f++) {
+            var formRowValues = formSheet.getRange(formMatches[f], 1, 1, formSheet.getLastColumn()).getValues()[0];
+            
+            // 取得目前的最高序號，並 + 1
+            var nextSerial = getNextSerialNumber(regSheet);
+            var nextSerialStr = ("00" + nextSerial).slice(-3); // 補零至三碼
+            
+            // 解析並組裝寫入「報名名單」的欄位
+            var parsed = getFormRowData(formRowValues, formHeaderMap);
+            var newRowValues = [
+              parsed.timestamp,                     // A: 時間戳記
+              "'" + nextSerialStr,                  // B: 序號 (文字格式)
+              parsed.name,                          // C: 姓名
+              parsed.email,                         // D: Email
+              parsed.phone,                         // E: 手機號碼
+              parsed.dept,                          // F: 前 Yahoo 部門/團隊
+              parsed.nickname,                      // G: 任職年份 / 暱稱
+              parsed.food,                          // H: 餐飲備註
+              "是",                                 // I: 是否已完成匯款
+              parsed.lastFive,                      // J: 匯款帳號末五碼
+              parsed.amount,                        // K: 匯款金額
+              parsed.time,                          // L: 匯款時間
+              parsed.screenshot,                    // M: 匯款截圖連結
+              "匯款完成",                           // N: 匯款完成
+              "",                                   // O: 空白
+              ""                                    // P: 空白
+            ];
+            
+            // 寫入報名名單
+            var newRowIdx = regSheet.getLastRow() + 1;
+            var range = regSheet.getRange(newRowIdx, 1, 1, newRowValues.length);
+            range.getCell(1, 2).setNumberFormat("@"); // 確保序號欄為文字格式
+            range.setValues([newRowValues]);
+          }
+          Logger.log("後五碼 [" + lastFive + "] 已成功從表單匯入報名名單且筆數相符 (" + B + " 筆)。");
+          anyChanges = true;
+        } else {
+          // 筆數不符，列為異常
+          var formCountError = "後五碼 [" + lastFive + "] 筆數不符：銀行通知有 " + B + " 筆，但表單回覆中有 " + F + " 筆。已跳過，需人工核對。";
+          anomalies.push(formCountError);
+          Logger.log(formCountError);
+        }
+      } else {
+        // 找不到對應的報名或表單回覆
+        var notFoundError = "後五碼 [" + lastFive + "] 無法在「報名名單」與「表單回覆 1」中找到任何報名資料。已跳過，需人工核對。";
+        anomalies.push(notFoundError);
+        Logger.log(notFoundError);
+      }
+    }
+  }
+  
+  // 4. 同步「匯款對帳」分頁的 H:M 欄位
+  if (anyChanges || bankTransactions.length > 0) {
+    Logger.log("正在重新同步「匯款對帳」分頁...");
+    syncPaymentReconciliationSheet(ss);
+    Logger.log("「匯款對帳」分頁同步完成。");
+    
+    // 5. 自動觸發寄送門票與發送日曆邀請 (針對新標記為「匯款完成」且尚未發票的人)
+    Logger.log("自動啟動批次發信與日曆邀請流程...");
+    processPendingTickets(false);
+  }
+  
+  // 6. 若有異常，發送通知
+  if (anomalies.length > 0) {
+    sendReconciliationAlert(anomalies);
+  }
+  
+  Logger.log("--- 自動對帳流程執行完畢 ---");
+}
+
+/**
+ * 解析兆豐銀行轉入通知信件
+ */
+function parseMegaBankEmail(body) {
+  var tx = { isValid: false, amount: 0, lastFive: "", errorReason: "" };
+  
+  // 1. 擷取金額
+  var amountRegex = /(?:轉入金額|金額)\s*[:：]\s*(?:NT\$)?\s*([0-9,.]+)/i;
+  var amountMatch = body.match(amountRegex);
+  if (amountMatch) {
+    tx.amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+  } else {
+    tx.errorReason = "無法解析交易金額";
+    return tx;
+  }
+  
+  // 2. 檢查金額是否為 1000 或 1000.00
+  if (tx.amount !== 1000) {
+    tx.errorReason = "交易金額不符 (金額為 " + tx.amount + " 元，應為 1000 元)";
+    return tx;
+  }
+  
+  // 3. 擷取交易備註後五碼
+  var remarkRegex = /交易備註（部份內容）\s*[:：]\s*([^\n\r]+)/;
+  var remarkMatch = body.match(remarkRegex);
+  if (remarkMatch) {
+    var remarkText = remarkMatch[1].toString().trim();
+    // 剔除非數字字元
+    var digits = remarkText.replace(/\D/g, '');
+    if (digits.length >= 5) {
+      tx.lastFive = digits.slice(-5);
+      tx.isValid = true;
+    } else if (digits.length > 0) {
+      tx.lastFive = digits; // 不足 5 碼但有數字
+      tx.errorReason = "交易備註數字不足五碼 (僅有 '" + digits + "')";
+    } else {
+      tx.errorReason = "交易備註無任何數字 (備註為 '" + remarkText + "')";
+    }
+  } else {
+    tx.errorReason = "找不到 '交易備註（部份內容）' 關鍵字";
+  }
+  
+  return tx;
+}
+
+/**
+ * 取得「報名名單」目前最高序號，用以累加
+ */
+function getNextSerialNumber(regSheet) {
+  var lastRow = regSheet.getLastRow();
+  var maxSerial = 0;
+  if (lastRow > 1) {
+    var serialValues = regSheet.getRange(2, 2, lastRow - 1, 1).getValues();
+    for (var r = 0; r < serialValues.length; r++) {
+      var val = serialValues[r][0].toString().trim();
+      var num = parseInt(val, 10);
+      if (!isNaN(num) && num > maxSerial) {
+        maxSerial = num;
+      }
+    }
+  }
+  return maxSerial;
+}
+
+/**
+ * 輔助搜尋特定欄位值符合指定資料的列號陣列 (1-based row indices)
+ */
+function findRowsInSheet(sheet, colIndex, targetValue) {
+  var lastRow = sheet.getLastRow();
+  var matches = [];
+  if (lastRow <= 1) return matches;
+  
+  var values = sheet.getRange(2, colIndex, lastRow - 1, 1).getValues();
+  for (var i = 0; i < values.length; i++) {
+    if (values[i][0].toString().trim() === targetValue.trim()) {
+      matches.push(i + 2); // 調整回 1-based 列號
+    }
+  }
+  return matches;
+}
+
+/**
+ * 解析 Form Responses 的各欄位內容 (動態比對標頭名稱，相容度最高)
+ */
+function getFormRowData(rowValues, formHeaderMap) {
+  var getVal = function(names, defaultCol) {
+    for (var i = 0; i < names.length; i++) {
+      var col = formHeaderMap[names[i].toLowerCase()];
+      if (col) return rowValues[col - 1];
+    }
+    if (defaultCol && defaultCol <= rowValues.length) {
+      return rowValues[defaultCol - 1];
+    }
+    return "";
+  };
+  
+  return {
+    timestamp: getVal(['時間戳記'], 1),
+    name: getVal(['姓名', '您的姓名'], 2),
+    email: getVal(['電子郵件地址', 'email', '電子郵件', '電子信箱'], 15), // 優先找 O 欄 (Col 15)
+    phone: getVal(['手機號碼', '手機', '電話', '聯絡電話'], 4),
+    dept: getVal(['前 yahoo 部門/團隊', '部門', '團隊'], 5),
+    nickname: getVal(['任職年份 / 暱稱', '任職年份', '暱稱'], 6),
+    food: getVal(['餐飲備註', '素食', '餐飲'], 7),
+    lastFive: getVal(['匯款帳號末五碼', '匯款帳號後5碼', '帳號後5碼', '後五碼'], 9), // I 欄 (Col 9)
+    amount: getVal(['匯款金額', '金額'], 11), // K 欄 (Col 11)
+    time: getVal(['匯款時間', '時間'], 12), // L 欄 (Col 12)
+    screenshot: getVal(['匯款截圖連結', '匯款截圖', '截圖'], 13)
+  };
+}
+
+/**
+ * 同步「匯款對帳」分頁的 H:M 欄位
+ */
+function syncPaymentReconciliationSheet(ss) {
+  var reconSheet = ss.getSheetByName("匯款對帳");
+  var regSheet = ss.getSheetByName("報名名單");
+  var formSheet = ss.getSheetByName("表單回覆 1");
+  
+  if (!reconSheet || !regSheet || !formSheet) return;
+  
+  var reconLastRow = reconSheet.getLastRow();
+  if (reconLastRow <= 1) return;
+  
+  var reconData = reconSheet.getRange(2, 1, reconLastRow - 1, 13).getValues(); // 讀取 A-M 欄
+  
+  // 1. 將「匯款對帳」依 G 欄 (存摺備註，即後五碼，Col 7) 分組
+  var bankGroups = {};
+  for (var i = 0; i < reconData.length; i++) {
+    var rowNum = i + 2;
+    var rowValues = reconData[i];
+    var lastFive = rowValues[7 - 1].toString().trim();
+    if (!lastFive) continue;
+    
+    if (!bankGroups[lastFive]) {
+      bankGroups[lastFive] = [];
+    }
+    bankGroups[lastFive].push({ rowNum: rowNum, values: rowValues });
+  }
+  
+  // 2. 將「報名名單」依 J 欄 (匯款帳號末五碼，Col 10) 分組
+  var regLastRow = regSheet.getLastRow();
+  var regData = regLastRow > 1 ? regSheet.getRange(2, 1, regLastRow - 1, 14).getValues() : [];
+  
+  var regGroups = {};
+  for (var j = 0; j < regData.length; j++) {
+    var rowNum = j + 2;
+    var rowValues = regData[j];
+    var lastFive = rowValues[10 - 1].toString().trim();
+    if (!lastFive) continue;
+    
+    if (!regGroups[lastFive]) {
+      regGroups[lastFive] = [];
+    }
+    regGroups[lastFive].push({ rowNum: rowNum, values: rowValues });
+  }
+  
+  // 3. 將「表單回覆 1」依 I 欄 (匯款帳號末五碼，Col 9) 分組
+  var formLastRow = formSheet.getLastRow();
+  var formData = formLastRow > 1 ? formSheet.getRange(2, 1, formLastRow - 1, 15).getValues() : [];
+  
+  var formGroups = {};
+  for (var f = 0; f < formData.length; f++) {
+    var rowNum = f + 2;
+    var rowValues = formData[f];
+    var lastFive = rowValues[9 - 1].toString().trim();
+    if (!lastFive) continue;
+    
+    if (!formGroups[lastFive]) {
+      formGroups[lastFive] = [];
+    }
+    formGroups[lastFive].push({ rowNum: rowNum, values: rowValues });
+  }
+  
+  // 4. 開始一對一比對與寫入
+  for (var lastFive in bankGroups) {
+    var reconGroup = bankGroups[lastFive];
+    var regGroup = regGroups[lastFive] || [];
+    var formGroup = formGroups[lastFive] || [];
+    
+    var X = reconGroup.length;
+    var Y = regGroup.length;
+    
+    // 排序名單與表單（依匯款時間）
+    regGroup.sort(function(a, b) {
+      return getValAsDate(a.values[12 - 1]).getTime() - getValAsDate(b.values[12 - 1]).getTime();
+    });
+    formGroup.sort(function(a, b) {
+      return getValAsDate(a.values[12 - 1]).getTime() - getValAsDate(b.values[12 - 1]).getTime();
+    });
+    
+    if (Y === 0) {
+      // 找不到對應
+      for (var k = 0; k < X; k++) {
+        var rowNum = reconGroup[k].rowNum;
+        reconSheet.getRange(rowNum, 8, 1, 3).setValues([["", "", ""]]); // 清空 H, I, J
+        reconSheet.getRange(rowNum, 11).setValue("找不到對應：" + lastFive); // K
+      }
+    } else if (X === Y) {
+      // 筆數完全相符 -> 進行一對一寫入
+      for (var k = 0; k < X; k++) {
+        var rowNum = reconGroup[k].rowNum;
+        var serial = regGroup[k].values[2 - 1]; // B: 序號
+        var name = regGroup[k].values[3 - 1];   // C: 姓名
+        
+        // J 欄 Email 優先去「表單回覆 1」的 O 欄 (Col 15) 找，找不到才用「報名名單」D 欄 (Col 4)
+        var email = "";
+        if (k < formGroup.length && formGroup[k].values[15 - 1]) {
+          email = formGroup[k].values[15 - 1];
+        } else {
+          email = regGroup[k].values[4 - 1];
+        }
+        
+        // 寫入 H:K 欄，且強制保留 L 欄 (UUID) 與 M 欄 (門票發送狀態)
+        var writeRange = reconSheet.getRange(rowNum, 8, 1, 4);
+        writeRange.getCell(1, 1).setNumberFormat("@"); // 強制 B 欄（此處為 H 欄）為文字格式
+        writeRange.setValues([["'" + serial, name, email, "匯款完成"]]);
+      }
+    } else {
+      // 筆數不符
+      for (var k = 0; k < X; k++) {
+        var rowNum = reconGroup[k].rowNum;
+        reconSheet.getRange(rowNum, 8, 1, 3).setValues([["", "", ""]]); // 清空 H, I, J
+        reconSheet.getRange(rowNum, 11).setValue("筆數不符：" + lastFive); // K
+      }
+    }
+  }
+}
+
+/**
+ * 輔助函式：取得數值的 Date 物件格式
+ */
+function getValAsDate(val) {
+  if (val instanceof Date) return val;
+  if (!val) return new Date(0);
+  var parsed = Date.parse(val.toString());
+  if (!isNaN(parsed)) return new Date(parsed);
+  return new Date(0);
+}
+
+/**
+ * 發送異常警告通知 (Email & Telegram)
+ */
+function sendReconciliationAlert(anomalies) {
+  if (anomalies.length === 0) return;
+  
+  var subject = "⚠️ 【2026退虎會】自動對帳系統異常通知！";
+  var body = "自動對帳系統在最近一次執行中發現以下異常，請立即前往試算表人工確認：\n\n" +
+             anomalies.map(function(err, idx) { return (idx + 1) + ". " + err; }).join("\n") +
+             "\n\n對帳試算表連結：https://docs.google.com/spreadsheets/d/" + SPREADSHEET_ID + "/edit";
+  
+  // 1. 發送 Email 通知
+  var emailTo = ADMIN_NOTIFY_EMAIL || Session.getActiveUser().getEmail();
+  if (emailTo) {
+    try {
+      MailApp.sendEmail(emailTo, subject, body);
+      Logger.log("已發送異常通知信件給：" + emailTo);
+    } catch (e) {
+      Logger.log("發送通知信件失敗: " + e.toString());
+    }
+  }
+  
+  // 2. 發送 Telegram 訊息 (若有設定 Token)
+  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
+    try {
+      var url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/sendMessage";
+      var payload = {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: "⚠️ *【2026退虎會】對帳異常通知*\n\n" + anomalies.join("\n") + "\n\n[點我打開試算表](https://docs.google.com/spreadsheets/d/" + SPREADSHEET_ID + "/edit)",
+        parse_mode: "Markdown"
+      };
+      
+      UrlFetchApp.fetch(url, {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      Logger.log("已發送 Telegram 異常通知。");
+    } catch (e) {
+      Logger.log("發送 Telegram 通知失敗: " + e.toString());
+    }
+  }
+}
