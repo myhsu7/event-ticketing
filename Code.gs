@@ -1092,8 +1092,13 @@ function sendReconciliationAlert(anomalies) {
 function convertHtmlToPlainText(html) {
   if (!html) return "";
   
-  // 將常見的換行與表格標籤換成新行或空白，保持格式結構
+  // 先濾除整個 <style> 與 <script> 區塊 (包含內部的 CSS 樣式與 JS 代碼)
   var text = html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "");
+    
+  // 將常見的換行與表格標籤換成新行或空白，保持格式結構
+  text = text
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/tr>/gi, "\n")
     .replace(/<\/p>/gi, "\n")
