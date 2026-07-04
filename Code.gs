@@ -1126,8 +1126,23 @@ function convertHtmlToPlainText(html) {
  */
 function normalizeLastFive(val) {
   if (val === null || val === undefined) return "";
-  var clean = val.toString().replace(/\D/g, '').trim();
+  var valStr = val.toString().trim();
+  if (valStr.length === 0) return "";
+  
+  var targetStr = valStr;
+  
+  // 檢查是否含有 dash "-"（代表跨行轉帳的 3碼銀行代號-帳號 格式）
+  var dashIdx = valStr.indexOf('-');
+  if (dashIdx !== -1) {
+    // 取得 dash 後面的帳號部分
+    targetStr = valStr.substring(dashIdx + 1).trim();
+  }
+  
+  // 剔除非數字字元
+  var clean = targetStr.replace(/\D/g, '');
   if (clean.length === 0) return "";
+  
+  // 取最右邊五碼，若不足五碼則在前方補零
   if (clean.length < 5) {
     clean = ("00000" + clean).slice(-5);
   } else {
