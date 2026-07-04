@@ -808,7 +808,7 @@ function parseMegaBankEmail(body) {
   var tx = { isValid: false, amount: 0, lastFive: "", errorReason: "" };
   
   // 1. 擷取金額
-  var amountRegex = /(?:轉入金額|金額)\s*[:：]\s*(?:NT\$)?\s*([0-9,.]+)/i;
+  var amountRegex = /(?:轉入金額|金額)\s*[:：]?\s*(?:新台幣|NT\$)?\s*([0-9,.]+)/i;
   var amountMatch = body.match(amountRegex);
   if (amountMatch) {
     tx.amount = parseFloat(amountMatch[1].replace(/,/g, ''));
@@ -824,7 +824,7 @@ function parseMegaBankEmail(body) {
   }
   
   // 3. 擷取交易備註後五碼
-  var remarkRegex = /交易備註（部份內容）\s*[:：]\s*([^\n\r]+)/;
+  var remarkRegex = /交易備註(?:（部份內容）)?\s*[:：]?\s*([^\n\r]+)/;
   var remarkMatch = body.match(remarkRegex);
   if (remarkMatch) {
     var remarkText = remarkMatch[1].toString().trim();
