@@ -1331,7 +1331,7 @@ function updateReconciliationSerial(reconSheet, name, lastFive, newSerialStr) {
 var ENABLE_UNPAID_REMINDER_EMAIL = false; 
 
 // 提醒信中的匯款銀行帳戶資訊 (請替換為您的實際收款帳號)
-var REMINDER_BANK_INFO = "兆豐銀行 (017) 帳號: 030-xx-xxxxx-x";
+var REMINDER_BANK_INFO = PropertiesService.getScriptProperties().getProperty('REMINDER_BANK_INFO') || "兆豐銀行 (017) 帳號: 030-xx-xxxxx-x";
 
 /**
  * 檢查「表單回覆 1」中，尚未完成匯款且「沒有填寫匯款後五碼」的報名者名單。
