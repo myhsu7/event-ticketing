@@ -638,6 +638,10 @@ function runAutoReconciliation() {
       var message = messages[j];
       if (message.isUnread()) {
         var body = message.getPlainBody();
+        // 如果純文字內容為空或是 HTML 預設的 fallback 訊息，則解析 HTML 內文並轉為純文字
+        if (!body || body.indexOf("HTML") !== -1 || body.indexOf("格式信件") !== -1 || body.indexOf("讀信程式") !== -1) {
+          body = convertHtmlToPlainText(message.getBody());
+        }
         var msgId = message.getId();
         
         var tx = parseMegaBankEmail(body);
@@ -1079,4 +1083,33 @@ function sendReconciliationAlert(anomalies) {
       Logger.log("發送 Telegram 通知失敗: " + e.toString());
     }
   }
+}
+
+
+/**
+ * 將 HTML 格式信件轉換為乾淨的純文字以供解析
+ */
+function convertHtmlToPlainText(html) {
+  if (!html) return "";
+  
+  // 將常見的換行與表格標籤換成新行或空白，保持格式結構
+  var text = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/tr>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/td>/gi, " ");
+    
+  // 濾除所有 HTML 標籤
+  text = text.replace(/<\/?[^>]+(>|$)/g, "");
+  
+  // 解碼 HTML 特殊字元
+  text = text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"');
+    
+  return text;
 }
