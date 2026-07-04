@@ -653,6 +653,7 @@ function runAutoReconciliation() {
           var errorMsg = "信件解析異常 (Msg ID: " + msgId + ") - 原因: " + tx.errorReason + " (本文摘要: " + body.substring(0, 100).replace(/\n/g, " ") + ")";
           anomalies.push(errorMsg);
           Logger.log(errorMsg);
+          Logger.log("【偵錯】Msg ID " + msgId + " Converted Body:\n" + body);
         }
         
         // 標示為已讀，防止重複處理
