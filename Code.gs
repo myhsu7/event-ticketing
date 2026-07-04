@@ -580,7 +580,7 @@ var TELEGRAM_BOT_TOKEN = ""; // 例如: "123456789:ABCdefGhI..."
 var TELEGRAM_CHAT_ID = "";   // 例如: "987654321"
 
 // 異常通知電子信箱 (選填，留空則預設寄給執行腳本的您本人)
-var ADMIN_NOTIFY_EMAIL = ""; 
+var ADMIN_NOTIFY_EMAIL = "mingyen@gmail.com"; 
 
 /**
  * 建立自動對帳的三個定時觸發器 (12:00, 18:00, 21:00)
