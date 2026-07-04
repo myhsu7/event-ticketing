@@ -750,7 +750,7 @@ function runAutoReconciliation() {
               parsed.nickname,                      // G: 任職年份 / 暱稱
               parsed.food,                          // H: 餐飲備註
               "是",                                 // I: 是否已完成匯款
-              parsed.lastFive,                      // J: 匯款帳號末五碼
+              "'" + parsed.lastFive,                // J: 匯款帳號末五碼 (強制文字格式，保留前導零)
               parsed.amount,                        // K: 匯款金額
               parsed.time,                          // L: 匯款時間
               parsed.screenshot,                    // M: 匯款截圖連結
@@ -762,7 +762,8 @@ function runAutoReconciliation() {
             // 寫入報名名單
             var newRowIdx = regSheet.getLastRow() + 1;
             var range = regSheet.getRange(newRowIdx, 1, 1, newRowValues.length);
-            range.getCell(1, 2).setNumberFormat("@"); // 確保序號欄為文字格式
+            range.getCell(1, 2).setNumberFormat("@");  // 確保 B 欄序號為文字格式
+            range.getCell(1, 10).setNumberFormat("@"); // 確保 J 欄後五碼為文字格式
             range.setValues([newRowValues]);
           }
           Logger.log("後五碼 [" + lastFive + "] 已成功從表單匯入報名名單且筆數相符 (" + B + " 筆)。");
