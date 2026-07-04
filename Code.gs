@@ -691,6 +691,7 @@ function runAutoReconciliation() {
   var formHeaderMap = getHeaderMap(formSheet);
   
   var anyChanges = false;
+  var currentMaxSerial = getNextSerialNumber(regSheet);
   
   // 3. 遍歷每組後五碼，進行比對與寫入
   for (var lastFive in bankTxGrouped) {
@@ -734,9 +735,9 @@ function runAutoReconciliation() {
           for (var f = 0; f < formMatches.length; f++) {
             var formRowValues = formSheet.getRange(formMatches[f], 1, 1, formSheet.getLastColumn()).getValues()[0];
             
-            // 取得目前的最高序號，並 + 1
-            var nextSerial = getNextSerialNumber(regSheet);
-            var nextSerialStr = ("00" + nextSerial).slice(-3); // 補零至三碼
+            // 使用記憶體中累加的序號，防止 Google Sheets 快取或多筆寫入時產生重複序號
+            currentMaxSerial++;
+            var nextSerialStr = ("00" + currentMaxSerial).slice(-3);
             
             // 解析並組裝寫入「報名名單」的欄位
             var parsed = getFormRowData(formRowValues, formHeaderMap);
