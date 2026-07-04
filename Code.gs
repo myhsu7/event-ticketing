@@ -874,8 +874,9 @@ function findRowsInSheet(sheet, colIndex, targetValue) {
   if (lastRow <= 1) return matches;
   
   var values = sheet.getRange(2, colIndex, lastRow - 1, 1).getValues();
+  var targetNorm = normalizeLastFive(targetValue);
   for (var i = 0; i < values.length; i++) {
-    if (values[i][0].toString().trim() === targetValue.trim()) {
+    if (normalizeLastFive(values[i][0]) === targetNorm) {
       matches.push(i + 2); // 調整回 1-based 列號
     }
   }
@@ -932,7 +933,7 @@ function syncPaymentReconciliationSheet(ss) {
   for (var i = 0; i < reconData.length; i++) {
     var rowNum = i + 2;
     var rowValues = reconData[i];
-    var lastFive = rowValues[7 - 1].toString().trim();
+    var lastFive = normalizeLastFive(rowValues[7 - 1]);
     if (!lastFive) continue;
     
     if (!bankGroups[lastFive]) {
@@ -949,7 +950,7 @@ function syncPaymentReconciliationSheet(ss) {
   for (var j = 0; j < regData.length; j++) {
     var rowNum = j + 2;
     var rowValues = regData[j];
-    var lastFive = rowValues[10 - 1].toString().trim();
+    var lastFive = normalizeLastFive(rowValues[10 - 1]);
     if (!lastFive) continue;
     
     if (!regGroups[lastFive]) {
@@ -966,7 +967,7 @@ function syncPaymentReconciliationSheet(ss) {
   for (var f = 0; f < formData.length; f++) {
     var rowNum = f + 2;
     var rowValues = formData[f];
-    var lastFive = rowValues[9 - 1].toString().trim();
+    var lastFive = normalizeLastFive(rowValues[9 - 1]);
     if (!lastFive) continue;
     
     if (!formGroups[lastFive]) {
@@ -1118,4 +1119,19 @@ function convertHtmlToPlainText(html) {
     .replace(/&quot;/g, '"');
     
   return text;
+}
+
+/**
+ * 標準化後五碼：剔除非數字，並自動補零至 5 碼，解決 Google 試算表數值去零的問題
+ */
+function normalizeLastFive(val) {
+  if (val === null || val === undefined) return "";
+  var clean = val.toString().replace(/\D/g, '').trim();
+  if (clean.length === 0) return "";
+  if (clean.length < 5) {
+    clean = ("00000" + clean).slice(-5);
+  } else {
+    clean = clean.slice(-5);
+  }
+  return clean;
 }
