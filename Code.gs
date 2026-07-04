@@ -693,6 +693,10 @@ function runAutoReconciliation() {
   var anyChanges = false;
   var currentMaxSerial = getNextSerialNumber(regSheet);
   
+  // 讀取報名名單全部資料，用以判斷表單資料是否已匯入 (防重複寫入)
+  var regLastRow = regSheet.getLastRow();
+  var regDataForImportCheck = regLastRow > 1 ? regSheet.getRange(2, 1, regLastRow - 1, 14).getValues() : [];
+  
   // 3. 遍歷每組後五碼，進行比對與寫入
   for (var lastFive in bankTxGrouped) {
     var txs = bankTxGrouped[lastFive];
@@ -700,40 +704,63 @@ function runAutoReconciliation() {
     
     // A. 檢查「報名名單」是否存在此後五碼 (J 欄，index 10)
     var regMatches = findRowsInSheet(regSheet, 10, lastFive);
-    var M = regMatches.length; // 報名名單筆數
     
-    if (M > 0) {
-      // 情況 A：已存在於報名名單
-      if (B === M) {
-        // 筆數相符，將這些列的 N 欄 (匯款完成，Col 14) 改為「匯款完成」
-        for (var r = 0; r < regMatches.length; r++) {
-          regSheet.getRange(regMatches[r], 14).setValue("匯款完成");
+    // 區分已完成對帳與未完成對帳的列數
+    var pendingRegMatches = [];
+    var completedCount = 0;
+    for (var r = 0; r < regMatches.length; r++) {
+      var rowNum = regMatches[r];
+      var statusVal = regSheet.getRange(rowNum, 14).getValue().toString().trim(); // N 欄
+      if (statusVal === "匯款完成") {
+        completedCount++;
+      } else {
+        pendingRegMatches.push(rowNum);
+      }
+    }
+    var M_pending = pendingRegMatches.length;
+    
+    if (M_pending > 0) {
+      // 情況 A：報名名單中還有待對帳的資料
+      if (B === M_pending) {
+        // 筆數相符，將這些列的 N 欄 (Col 14) 改為「匯款完成」
+        for (var r = 0; r < pendingRegMatches.length; r++) {
+          regSheet.getRange(pendingRegMatches[r], 14).setValue("匯款完成");
         }
-        Logger.log("後五碼 [" + lastFive + "] 已存在報名名單且筆數相符 (" + B + " 筆)，已更新狀態為匯款完成。");
+        Logger.log("後五碼 [" + lastFive + "] 待對帳名單筆數相符 (" + B + " 筆)，已更新狀態為匯款完成。");
         anyChanges = true;
       } else {
         // 筆數不符，列為異常
-        var countError = "後五碼 [" + lastFive + "] 筆數不符：銀行通知有 " + B + " 筆，但報名名單中有 " + M + " 筆。已跳過，需人工核對。";
+        var countError = "後五碼 [" + lastFive + "] 筆數不符：銀行新通知有 " + B + " 筆，但名單中待對帳有 " + M_pending + " 筆（已完成 " + completedCount + " 筆）。已跳過，需人工核對。";
         anomalies.push(countError);
         Logger.log(countError);
       }
     } else {
-      // 情況 B：不在報名名單，去「表單回覆 1」比對 (I 欄，index 9)
+      // 情況 B：報名名單中無待對帳資料，去「表單回覆 1」找尚未匯入的資料 (I 欄，index 9)
       var formMatches = findRowsInSheet(formSheet, 9, lastFive);
-      var F = formMatches.length; // 表單回覆筆數
       
-      if (F > 0) {
+      // 過濾出尚未匯入報名名單的表單資料
+      var unimportedFormMatches = [];
+      for (var f = 0; f < formMatches.length; f++) {
+        var formRowNum = formMatches[f];
+        var formRowValues = formSheet.getRange(formRowNum, 1, 1, formSheet.getLastColumn()).getValues()[0];
+        if (!isFormRowImported(formRowValues, formHeaderMap, regDataForImportCheck)) {
+          unimportedFormMatches.push(formRowNum);
+        }
+      }
+      var F_unimported = unimportedFormMatches.length;
+      
+      if (F_unimported > 0) {
         // 排序表單回覆 (依 L 欄「匯款時間」由早到晚)
-        formMatches.sort(function(rowA, rowB) {
+        unimportedFormMatches.sort(function(rowA, rowB) {
           var timeA = getValAsDate(formSheet.getRange(rowA, 12).getValue());
           var timeB = getValAsDate(formSheet.getRange(rowB, 12).getValue());
           return timeA.getTime() - timeB.getTime();
         });
         
-        if (B === F) {
+        if (B === F_unimported) {
           // 筆數相符，全數寫入 (Append) 報名名單
-          for (var f = 0; f < formMatches.length; f++) {
-            var formRowValues = formSheet.getRange(formMatches[f], 1, 1, formSheet.getLastColumn()).getValues()[0];
+          for (var f = 0; f < unimportedFormMatches.length; f++) {
+            var formRowValues = formSheet.getRange(unimportedFormMatches[f], 1, 1, formSheet.getLastColumn()).getValues()[0];
             
             // 使用記憶體中累加的序號，防止 Google Sheets 快取或多筆寫入時產生重複序號
             currentMaxSerial++;
@@ -766,18 +793,21 @@ function runAutoReconciliation() {
             range.getCell(1, 2).setNumberFormat("@");  // 確保 B 欄序號為文字格式
             range.getCell(1, 10).setNumberFormat("@"); // 確保 J 欄後五碼為文字格式
             range.setValues([newRowValues]);
+            
+            // 同時更新記憶體中的比對資料，確保同一批後續寫入不會重複判定為「未匯入」
+            regDataForImportCheck.push(newRowValues);
           }
           Logger.log("後五碼 [" + lastFive + "] 已成功從表單匯入報名名單且筆數相符 (" + B + " 筆)。");
           anyChanges = true;
         } else {
           // 筆數不符，列為異常
-          var formCountError = "後五碼 [" + lastFive + "] 筆數不符：銀行通知有 " + B + " 筆，但表單回覆中有 " + F + " 筆。已跳過，需人工核對。";
+          var formCountError = "後五碼 [" + lastFive + "] 筆數不符：銀行新通知有 " + B + " 筆，但表單回覆中未對帳有 " + F_unimported + " 筆。已跳過，需人工核對。";
           anomalies.push(formCountError);
           Logger.log(formCountError);
         }
       } else {
-        // 找不到對應的報名或表單回覆
-        var notFoundError = "後五碼 [" + lastFive + "] 無法在「報名名單」與「表單回覆 1」中找到任何報名資料。已跳過，需人工核對。";
+        // 找不到任何待處理資料
+        var notFoundError = "後五碼 [" + lastFive + "] 無法在「報名名單」或「表單回覆 1」中找到任何待對帳的資料（名單已完成對帳 " + completedCount + " 筆）。已跳過，需人工核對。";
         anomalies.push(notFoundError);
         Logger.log(notFoundError);
       }
@@ -1151,4 +1181,24 @@ function normalizeLastFive(val) {
     clean = clean.slice(-5);
   }
   return clean;
+}
+
+
+/**
+ * 判斷表單回覆的資料列是否已經被匯入過報名名單 (以「姓名」與「後五碼」共同判斷，防止重複匯入)
+ */
+function isFormRowImported(formRowValues, formHeaderMap, regData) {
+  var nameCol = formHeaderMap['姓名'] || formHeaderMap['您的姓名'] || 2;
+  var formName = formRowValues[nameCol - 1].toString().trim();
+  var lastFiveCol = formHeaderMap['匯款帳號末五碼'] || formHeaderMap['匯款帳號後5碼'] || 9;
+  var formLastFive = normalizeLastFive(formRowValues[lastFiveCol - 1]);
+  
+  for (var i = 0; i < regData.length; i++) {
+    var regName = regData[i][3 - 1].toString().trim(); // Column C (姓名)
+    var regLastFive = normalizeLastFive(regData[i][10 - 1]); // Column J (後五碼)
+    if (regName === formName && regLastFive === formLastFive) {
+      return true;
+    }
+  }
+  return false;
 }
