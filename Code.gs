@@ -580,7 +580,10 @@ var TELEGRAM_BOT_TOKEN = PropertiesService.getScriptProperties().getProperty('TE
 var TELEGRAM_CHAT_ID = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID') || "";
 
 // 異常通知電子信箱 (選填，留空則預設寄給執行腳本的您本人)
-var ADMIN_NOTIFY_EMAIL = "mingyen@gmail.com"; 
+var ADMIN_NOTIFY_EMAIL = "mingyen@gmail.com";
+
+// 是否每次定時對帳執行後，不論有無交易都發送 Telegram 執行報告 (預設為 true 讓您能有感確認)
+var ENABLE_TELEGRAM_REPORT_ALWAYS = true; 
 
 /**
  * 建立自動對帳的三個定時觸發器 (12:00, 18:00, 21:00)
@@ -664,6 +667,14 @@ function runAutoReconciliation() {
   
   if (bankTransactions.length === 0 && anomalies.length === 0) {
     Logger.log("無任何新交易或異常，對帳結束。");
+    if (ENABLE_TELEGRAM_REPORT_ALWAYS) {
+      var nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+      sendTelegramMessage("🤖 *【2026退虎會】定時自動對帳報告*\n\n" +
+                         "• 執行狀態：正常 (無新轉入信件)\n" +
+                         "• 處理時間：" + nowStr + "\n" +
+                         "• 本次匯入名單：0 筆\n" +
+                         "• 本次發送門票：0 筆");
+    }
     return;
   }
   
@@ -829,6 +840,21 @@ function runAutoReconciliation() {
   if (anomalies.length > 0) {
     sendReconciliationAlert(anomalies);
   }
+  
+  // 7. 發送執行成果總結至 Telegram
+  var nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+  var successCount = bankTransactions.length;
+  var anomalyCount = anomalies.length;
+  
+  var statusMsg = "🤖 *【2026退虎會】定時自動對帳報告*\n\n" +
+                  "• 執行狀態：完成對帳並同步 ✨\n" +
+                  "• 處理時間：" + nowStr + "\n" +
+                  "• 本次解析新交易：" + successCount + " 筆\n" +
+                  "• 本次異常提醒：" + anomalyCount + " 筆\n" +
+                  "• 累計報名最高序號：" + ("00" + currentMaxSerial).slice(-3) + "\n\n" +
+                  "[點我開啟對帳試算表](https://docs.google.com/spreadsheets/d/" + SPREADSHEET_ID + "/edit)";
+                  
+  sendTelegramMessage(statusMsg);
   
   Logger.log("--- 自動對帳流程執行完畢 ---");
 }
@@ -1462,4 +1488,37 @@ function sendUnpaidReminderEmail(email, name) {
     subject: subject,
     htmlBody: htmlBody
   });
+}
+
+
+/**
+ * 發送通用純文字訊息至 Telegram
+ */
+function sendTelegramMessage(text) {
+  var token = PropertiesService.getScriptProperties().getProperty('TELEGRAM_BOT_TOKEN') || "";
+  var chatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID') || "";
+  
+  if (!token || !chatId) {
+    Logger.log("未設定 Telegram Token 或 Chat ID，跳過發送訊息。");
+    return;
+  }
+  
+  try {
+    var url = "https://api.telegram.org/bot" + token + "/sendMessage";
+    var payload = {
+      chat_id: chatId,
+      text: text,
+      parse_mode: "Markdown"
+    };
+    
+    UrlFetchApp.fetch(url, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    Logger.log("Telegram 訊息發送成功。");
+  } catch (e) {
+    Logger.log("發送 Telegram 訊息失敗: " + e.toString());
+  }
 }
