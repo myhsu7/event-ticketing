@@ -339,6 +339,8 @@ function doGet(e) {
   template.message = result.message;
   template.attendeeName = result.name;
   template.checkInTime = result.time;
+  template.isVegetarian = result.isVegetarian || false;
+  template.foodNote = result.foodNote || "";
   
   var title = "簽到結果 - exYahoo";
   if (result.status === "success") title = "簽到成功 - " + result.name;
@@ -400,6 +402,25 @@ function processCheckIn(uuid) {
   var noteValue = noteCol ? sheet.getRange(targetRow, noteCol).getValue().toString().toLowerCase() : "";
   var isTestRow = noteValue.indexOf("test") !== -1;
   
+  // 取得來賓餐飲備註與判定素食需求
+  var isVegetarian = false;
+  var foodNote = "";
+  var serial = sheet.getRange(targetRow, 8).getValue().toString().trim(); // H 欄 (對應報名序號)
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var regSheet = ss.getSheetByName("報名名單");
+  
+  if (regSheet && serial) {
+    var regMatches = findRowsInSheet(regSheet, 2, serial); // 在 B 欄 (序號) 尋找
+    if (regMatches.length > 0) {
+      foodNote = regSheet.getRange(regMatches[0], 8).getValue().toString().trim(); // H 欄 (餐飲備註)
+      var noteLower = foodNote.toLowerCase();
+      // 判定素食關鍵字
+      if (noteLower.indexOf("素") !== -1 && noteLower.indexOf("不吃素") === -1 && noteLower.indexOf("非素") === -1) {
+        isVegetarian = true;
+      }
+    }
+  }
+  
   // 3. 檢查是否已開放簽到 (活動開始前 1 小時開放) - 測試列除外
   var now = new Date();
   var eventStartTime = new Date(EVENT_START);
@@ -428,6 +449,8 @@ function processCheckIn(uuid) {
       status: "success",
       name: name,
       time: formattedTime,
+      isVegetarian: isVegetarian,
+      foodNote: foodNote,
       message: "簽到成功！歡迎光臨 exYahoo Summer Party 🎉"
     };
   } else {
@@ -442,6 +465,8 @@ function processCheckIn(uuid) {
       status: "warning",
       name: name,
       time: formattedOriginalTime,
+      isVegetarian: isVegetarian,
+      foodNote: foodNote,
       message: "此門票先前已完成簽到！請勿重複使用。"
     };
   }

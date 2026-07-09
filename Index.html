@@ -278,6 +278,39 @@
       transform: translateY(0);
     }
 
+    /* Dietary alert card styling */
+    .diet-alert-box {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1.5px dashed var(--success);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 25px;
+      animation: pulseVeg 2s infinite ease-in-out;
+    }
+
+    @keyframes pulseVeg {
+      0%, 100% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.1); }
+      50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
+    }
+
+    .diet-alert-title {
+      color: #34d399;
+      font-size: 18px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .diet-alert-note {
+      color: var(--text-main);
+      font-size: 14px;
+      margin-top: 6px;
+      font-weight: 600;
+      opacity: 0.95;
+    }
+
     /* Decorative footer */
     .footer {
       margin-top: 30px;
@@ -365,6 +398,16 @@
       <div class="status-badge"><?= badgeText ?></div>
       <h1 class="title"><?= statusTitle ?></h1>
       <p class="message"><?= displayMsg ?></p>
+
+      <!-- 素食特別標示區 (Dietary requirement) -->
+      <? if (typeof isVegetarian !== 'undefined' && isVegetarian) { ?>
+        <div class="diet-alert-box">
+          <div class="diet-alert-title">🥦 素食來賓 (Vegetarian)</div>
+          <? if (foodNote) { ?>
+            <div class="diet-alert-note">餐飲備註：<?= foodNote ?></div>
+          <? } ?>
+        </div>
+      <? } ?>
 
       <!-- 來賓資訊卡片 -->
       <? if (typeof attendeeName !== 'undefined' && attendeeName) { ?>
