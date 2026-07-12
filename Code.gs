@@ -145,7 +145,13 @@ function handleEdit(e) {
       }
       
       // 5. 邀請至 Google 日曆 (透過 Google 日曆發送邀請，帶入 uuid 以整合 QR Code)
-      inviteAttendeeToCalendar(email, name, uuid);
+      // 進行去重判定：若是同行票 (如包含 "(2/" 或 "(3/" 等)，則不發送日曆邀請以防洗版代表人的行事曆
+      var isCompanionTicket = name.indexOf("(") !== -1 && name.indexOf("/") !== -1 && name.indexOf("(1/") === -1;
+      if (!isCompanionTicket) {
+        inviteAttendeeToCalendar(email, name, uuid);
+      } else {
+        Logger.log("同行票券 [" + name + "] 跳過日曆邀請以防重複。");
+      }
     }
   }
 }
@@ -224,7 +230,13 @@ function processPendingTickets(isTestMode) {
         }
         
         // 批次執行時也自動發送日曆邀請
-        inviteAttendeeToCalendar(email, name, uuid);
+        // 進行去重判定：若是同行票 (如包含 "(2/" 或 "(3/" 等)，則不發送日曆邀請以防洗版代表人的行事曆
+        var isCompanionTicket = name.indexOf("(") !== -1 && name.indexOf("/") !== -1 && name.indexOf("(1/") === -1;
+        if (!isCompanionTicket) {
+          inviteAttendeeToCalendar(email, name, uuid);
+        } else {
+          Logger.log("同行票券 [" + name + "] 跳過日曆邀請以防重複。");
+        }
       }
     }
   }
@@ -261,6 +273,17 @@ function sendTicketEmail(email, name, uuid) {
   
   var subject = "【exYahoo Summer Party】您的入場門票已核發！";
   
+  // 檢查是否為同行票 (例如含有 " (1/3)")
+  var isMultiTicket = name.indexOf("(") !== -1 && name.indexOf("/") !== -1;
+  var forwardTip = "";
+  if (isMultiTicket) {
+    var ticketIndexStr = name.substring(name.indexOf("(")); // 擷取類似 "(1/3)"
+    forwardTip = 
+      "<div style='background-color: #fff9db; border-left: 4px solid #f59e0b; padding: 12px; margin: 15px 0; border-radius: 6px; font-size: 13px; color: #744210; text-align: left; line-height: 1.5;'>" +
+        "💡 <strong>轉寄提示：</strong>本信件為您購買的第 " + ticketIndexStr + " 門票。您可以將此信件直接<strong>轉寄給您的同行夥伴</strong>，供其現場掃描入場。" +
+      "</div>";
+  }
+  
   // 漂亮的 HTML 信件範本 (包含 Google 與 Yahoo 日曆加入按鈕)
   var htmlBody = 
     "<div style='font-family: \"Helvetica Neue\", Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);'>" +
@@ -271,6 +294,7 @@ function sendTicketEmail(email, name, uuid) {
       "<div style='border-top: 1px dashed #e5e7eb; border-bottom: 1px dashed #e5e7eb; padding: 20px 0; text-align: center;'>" +
         "<p style='font-size: 16px; color: #1f2937; margin: 0 0 10px 0;'>親愛的 <strong>" + name + "</strong> 您好：</p>" +
         "<p style='font-size: 14px; color: #4b5563; margin: 0 0 20px 0; line-height: 1.5;'>我們已確認您的匯款，報名成功！<br>請妥善保存下方 QR Code，於活動當天進場時出示掃描。</p>" +
+        forwardTip +
         "<div style='background-color: #f9fafb; padding: 15px; display: inline-block; border-radius: 12px; margin-bottom: 15px;'>" +
           "<img src='" + qrCodeImageUrl + "' alt='Entry QR Code' style='width: 200px; height: 200px; display: block;' />" +
         "</div>" +
@@ -736,7 +760,12 @@ function runAutoReconciliation() {
   // 3. 遍歷每組後五碼，進行比對與寫入
   for (var lastFive in bankTxGrouped) {
     var txs = bankTxGrouped[lastFive];
-    var B = txs.length; // 銀行通知筆數
+    
+    // 計算此後五碼在本次通知中的總購票張數
+    var B = 0;
+    for (var k = 0; k < txs.length; k++) {
+      B += txs[k].ticketsPaid;
+    }
     
     // A. 檢查「報名名單」是否存在此後五碼 (J 欄，index 10)
     var regMatches = findRowsInSheet(regSheet, 10, lastFive);
@@ -794,46 +823,50 @@ function runAutoReconciliation() {
         });
         
         if (B === F_unimported) {
-          // 筆數相符，全數寫入 (Append) 報名名單
+          // 筆數/張數相符，全數寫入 (Append) 報名名單
           for (var f = 0; f < unimportedFormMatches.length; f++) {
-            var formRowValues = formSheet.getRange(unimportedFormMatches[f], 1, 1, formSheet.getLastColumn()).getValues()[0];
-            
-            // 使用記憶體中累加的序號，防止 Google Sheets 快取或多筆寫入時產生重複序號
-            currentMaxSerial++;
-            var nextSerialStr = ("00" + currentMaxSerial).slice(-3);
-            
-            // 解析並組裝寫入「報名名單」的欄位
+            var formRowNum = unimportedFormMatches[f];
+            var formRowValues = formSheet.getRange(formRowNum, 1, 1, formSheet.getLastColumn()).getValues()[0];
             var parsed = getFormRowData(formRowValues, formHeaderMap);
-            var newRowValues = [
-              parsed.timestamp,                     // A: 時間戳記
-              "'" + nextSerialStr,                  // B: 序號 (文字格式)
-              parsed.name,                          // C: 姓名
-              parsed.email,                         // D: Email
-              parsed.phone,                         // E: 手機號碼
-              parsed.dept,                          // F: 前 Yahoo 部門/團隊
-              parsed.nickname,                      // G: 任職年份 / 暱稱
-              parsed.food,                          // H: 餐飲備註
-              "是",                                 // I: 是否已完成匯款
-              "'" + parsed.lastFive,                // J: 匯款帳號末五碼 (強制文字格式，保留前導零)
-              parsed.amount,                        // K: 匯款金額
-              parsed.time,                          // L: 匯款時間
-              parsed.screenshot,                    // M: 匯款截圖連結
-              "匯款完成",                           // N: 匯款完成
-              "",                                   // O: 空白
-              ""                                    // P: 空白
-            ];
             
-            // 寫入報名名單
-            var newRowIdx = regSheet.getLastRow() + 1;
-            var range = regSheet.getRange(newRowIdx, 1, 1, newRowValues.length);
-            range.getCell(1, 2).setNumberFormat("@");  // 確保 B 欄序號為文字格式
-            range.getCell(1, 10).setNumberFormat("@"); // 確保 J 欄後五碼為文字格式
-            range.setValues([newRowValues]);
+            var totalTickets = Math.round(parsed.amount / 1000);
             
-            // 同時更新記憶體中的比對資料，確保同一批後續寫入不會重複判定為「未匯入」
-            regDataForImportCheck.push(newRowValues);
+            // 根據張數，在「報名名單」中展開為多筆
+            for (var t = 1; t <= totalTickets; t++) {
+              currentMaxSerial++;
+              var nextSerialStr = ("00" + currentMaxSerial).slice(-3);
+              
+              var displayName = totalTickets > 1 ? parsed.name + " (" + t + "/" + totalTickets + ")" : parsed.name;
+              
+              var newRowValues = [
+                parsed.timestamp,                     // A: 時間戳記
+                "'" + nextSerialStr,                  // B: 序號 (文字格式)
+                displayName,                          // C: 姓名
+                parsed.email,                         // D: Email
+                parsed.phone,                         // E: 手機號碼
+                parsed.dept,                          // F: 前 Yahoo 部門/團隊
+                parsed.nickname,                      // G: 任職年份 / 暱稱
+                parsed.food,                          // H: 餐飲備註
+                "是",                                 // I: 是否已完成匯款
+                "'" + parsed.lastFive,                // J: 匯款帳號末五碼 (強制文字格式，保留前導零)
+                1000,                                 // K: 拆單金額
+                parsed.time,                          // L: 匯款時間
+                parsed.screenshot,                    // M: 匯款截圖連結
+                "匯款完成",                           // N: 匯款完成
+                "",                                   // O: 空白
+                ""                                    // P: 空白
+              ];
+              
+              var newRowIdx = regSheet.getLastRow() + 1;
+              var range = regSheet.getRange(newRowIdx, 1, 1, newRowValues.length);
+              range.getCell(1, 2).setNumberFormat("@");
+              range.getCell(1, 10).setNumberFormat("@");
+              range.setValues([newRowValues]);
+              
+              regDataForImportCheck.push(newRowValues);
+            }
           }
-          Logger.log("後五碼 [" + lastFive + "] 已成功從表單匯入報名名單且筆數相符 (" + B + " 筆)。");
+          Logger.log("後五碼 [" + lastFive + "] 已成功從表單匯入報名名單且筆數/張數相符 (共展開為 " + B + " 筆)。");
           anyChanges = true;
         } else {
           // 筆數不符，列為異常
@@ -888,7 +921,7 @@ function runAutoReconciliation() {
  * 解析兆豐銀行轉入通知信件
  */
 function parseMegaBankEmail(body) {
-  var tx = { isValid: false, amount: 0, lastFive: "", errorReason: "" };
+  var tx = { isValid: false, amount: 0, lastFive: "", ticketsPaid: 1, errorReason: "" };
   
   // 1. 擷取金額
   var amountRegex = /(?:轉入金額|金額)\s*[:：]?\s*(?:新台幣|NT\$)?\s*([0-9,.]+)/i;
@@ -900,11 +933,12 @@ function parseMegaBankEmail(body) {
     return tx;
   }
   
-  // 2. 檢查金額是否為 1000 或 1000.00
-  if (tx.amount !== 1000) {
-    tx.errorReason = "交易金額不符 (金額為 " + tx.amount + " 元，應為 1000 元)";
+  // 2. 檢查金額是否為 1000 元的倍數
+  if (tx.amount % 1000 !== 0 || tx.amount <= 0) {
+    tx.errorReason = "交易金額不符 (金額為 " + tx.amount + " 元，應為 1000 元的倍數)";
     return tx;
   }
+  tx.ticketsPaid = tx.amount / 1000;
   
   // 3. 擷取交易備註後五碼
   var remarkRegex = /交易備註(?:（部份內容）)?\s*[:：]?\s*([^\n\r]+)/;
@@ -1010,6 +1044,8 @@ function syncPaymentReconciliationSheet(ss) {
   if (reconLastRow <= 1) return;
   
   var reconData = reconSheet.getRange(2, 1, reconLastRow - 1, 13).getValues(); // 讀取 A-M 欄
+  var reconHeaderMap = getHeaderMap(reconSheet);
+  var reconAmountCol = reconHeaderMap['金額'] || reconHeaderMap['交易金額'] || reconHeaderMap['存入金額'] || 6; // 預設第 6 欄 (F)
   
   // 1. 將「匯款對帳」依 G 欄 (存摺備註，即後五碼，Col 7) 分組
   var bankGroups = {};
@@ -1068,6 +1104,15 @@ function syncPaymentReconciliationSheet(ss) {
     var X = reconGroup.length;
     var Y = regGroup.length;
     
+    // 計算「匯款對帳」中此後五碼所支付的總購票張數 (金額 / 1000)
+    var X_tickets = 0;
+    for (var k = 0; k < reconGroup.length; k++) {
+      var amountVal = parseFloat(reconGroup[k].values[reconAmountCol - 1]);
+      if (!isNaN(amountVal) && amountVal > 0) {
+        X_tickets += Math.round(amountVal / 1000);
+      }
+    }
+    
     // 排序名單與表單（依匯款時間）
     regGroup.sort(function(a, b) {
       return getValAsDate(a.values[12 - 1]).getTime() - getValAsDate(b.values[12 - 1]).getTime();
@@ -1083,32 +1128,65 @@ function syncPaymentReconciliationSheet(ss) {
         reconSheet.getRange(rowNum, 8, 1, 3).setValues([["", "", ""]]); // 清空 H, I, J
         reconSheet.getRange(rowNum, 11).setValue("找不到對應：" + lastFive); // K
       }
-    } else if (X === Y) {
-      // 筆數完全相符 -> 進行一對一寫入
-      for (var k = 0; k < X; k++) {
-        var rowNum = reconGroup[k].rowNum;
-        var serial = regGroup[k].values[2 - 1]; // B: 序號
-        var name = regGroup[k].values[3 - 1];   // C: 姓名
+    } else if (X_tickets === Y) {
+      // 總購票張數與名單人數相符
+      if (X === Y) {
+        // 筆數完全相符 -> 進行一對一寫入
+        for (var k = 0; k < X; k++) {
+          var rowNum = reconGroup[k].rowNum;
+          var serial = regGroup[k].values[2 - 1]; // B: 序號
+          var name = regGroup[k].values[3 - 1];   // C: 姓名
+          
+          var email = "";
+          if (k < formGroup.length && formGroup[k].values[15 - 1]) {
+            email = formGroup[k].values[15 - 1];
+          } else {
+            email = regGroup[k].values[4 - 1];
+          }
+          
+          var writeRange = reconSheet.getRange(rowNum, 8, 1, 4);
+          writeRange.getCell(1, 1).setNumberFormat("@");
+          writeRange.setValues([["'" + serial, name, email, "匯款完成"]]);
+        }
+      } else {
+        // 筆數不符但總張數相符 (例如：銀行 1 筆 3000 元，名單有 3 筆資料)
+        // 我們需要在對帳表進行「拆單 (Row Splitting)」
+        var baseRow = reconGroup[0].rowNum;
+        var baseValues = reconGroup[0].values; // A-G 欄的銀行資訊
         
-        // J 欄 Email 優先去「表單回覆 1」的 O 欄 (Col 15) 找，找不到才用「報名名單」D 欄 (Col 4)
-        var email = "";
-        if (k < formGroup.length && formGroup[k].values[15 - 1]) {
-          email = formGroup[k].values[15 - 1];
-        } else {
-          email = regGroup[k].values[4 - 1];
+        // 插入額外所需的空白列，並複製銀行資訊 (A-G 欄)
+        var neededRows = Y - X;
+        reconSheet.insertRowsAfter(baseRow, neededRows);
+        
+        for (var n = 1; n <= neededRows; n++) {
+          var targetRowIdx = baseRow + n;
+          reconSheet.getRange(targetRowIdx, 1, 1, 7).setValues([baseValues.slice(0, 7)]);
         }
         
-        // 寫入 H:K 欄，且強制保留 L 欄 (UUID) 與 M 欄 (門票發送狀態)
-        var writeRange = reconSheet.getRange(rowNum, 8, 1, 4);
-        writeRange.getCell(1, 1).setNumberFormat("@"); // 強制 B 欄（此處為 H 欄）為文字格式
-        writeRange.setValues([["'" + serial, name, email, "匯款完成"]]);
+        // 重新寫入一對一的名單資訊
+        for (var k = 0; k < Y; k++) {
+          var currentRowIdx = baseRow + k;
+          var serial = regGroup[k].values[2 - 1]; // B: 序號
+          var name = regGroup[k].values[3 - 1];   // C: 姓名
+          
+          var email = "";
+          if (k < formGroup.length && formGroup[k].values[15 - 1]) {
+            email = formGroup[k].values[15 - 1];
+          } else {
+            email = regGroup[k].values[4 - 1];
+          }
+          
+          var writeRange = reconSheet.getRange(currentRowIdx, 8, 1, 4);
+          writeRange.getCell(1, 1).setNumberFormat("@");
+          writeRange.setValues([["'" + serial, name, email, "匯款完成"]]);
+        }
       }
     } else {
       // 筆數不符
       for (var k = 0; k < X; k++) {
         var rowNum = reconGroup[k].rowNum;
         reconSheet.getRange(rowNum, 8, 1, 3).setValues([["", "", ""]]); // 清空 H, I, J
-        reconSheet.getRange(rowNum, 11).setValue("筆數不符：" + lastFive); // K
+        reconSheet.getRange(rowNum, 11).setValue("筆數不符：" + lastFive + " (通知張數:" + X_tickets + ", 名單人數:" + Y + ")"); // K
       }
     }
   }
