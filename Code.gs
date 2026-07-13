@@ -1066,6 +1066,11 @@ function syncPaymentReconciliationSheet(ss) {
   for (var i = 0; i < reconData.length; i++) {
     var rowNum = i + 2;
     var rowValues = reconData[i];
+    
+    // 如果該列已經有 UUID，代表已經完成對帳與票券核發，不再參與新的對帳同步 (隔離保護)
+    var currentUuid = rowValues[12 - 1]; // L 欄
+    if (currentUuid) continue;
+    
     var lastFive = normalizeLastFive(rowValues[7 - 1]);
     if (!lastFive) continue;
     
@@ -1083,6 +1088,11 @@ function syncPaymentReconciliationSheet(ss) {
   for (var j = 0; j < regData.length; j++) {
     var rowNum = j + 2;
     var rowValues = regData[j];
+    
+    // 如果該列在報名名單中已經是「匯款完成」，代表已經核對過，排除 (隔離保護)
+    var status = rowValues[14 - 1]; // N 欄
+    if (status === "匯款完成") continue;
+    
     var lastFive = normalizeLastFive(rowValues[10 - 1]);
     if (!lastFive) continue;
     
