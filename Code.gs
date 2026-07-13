@@ -814,6 +814,20 @@ function runAutoReconciliation() {
       }
       var F_unimported = unimportedFormMatches.length;
       
+      // 計算未匯入表單中所申報的總門票張數 (金額 / 1000)
+      var F_tickets = 0;
+      for (var f = 0; f < unimportedFormMatches.length; f++) {
+        var formRowNum = unimportedFormMatches[f];
+        var formRowValues = formSheet.getRange(formRowNum, 1, 1, formSheet.getLastColumn()).getValues()[0];
+        var parsed = getFormRowData(formRowValues, formHeaderMap);
+        var amountVal = parseFloat(parsed.amount);
+        if (!isNaN(amountVal) && amountVal > 0) {
+          F_tickets += Math.round(amountVal / 1000);
+        } else {
+          F_tickets += 1;
+        }
+      }
+      
       if (F_unimported > 0) {
         // 排序表單回覆 (依 L 欄「匯款時間」由早到晚)
         unimportedFormMatches.sort(function(rowA, rowB) {
@@ -822,7 +836,7 @@ function runAutoReconciliation() {
           return timeA.getTime() - timeB.getTime();
         });
         
-        if (B === F_unimported) {
+        if (B === F_tickets) {
           // 筆數/張數相符，全數寫入 (Append) 報名名單
           for (var f = 0; f < unimportedFormMatches.length; f++) {
             var formRowNum = unimportedFormMatches[f];
@@ -870,7 +884,7 @@ function runAutoReconciliation() {
           anyChanges = true;
         } else {
           // 筆數不符，列為異常
-          var formCountError = "後五碼 [" + lastFive + "] 筆數不符：銀行新通知有 " + B + " 筆，但表單回覆中未對帳有 " + F_unimported + " 筆。已跳過，需人工核對。";
+          var formCountError = "後五碼 [" + lastFive + "] 筆數不符：銀行新通知有 " + B + " 筆，但表單回覆中未對帳有 " + F_tickets + " 筆。已跳過，需人工核對。";
           anomalies.push(formCountError);
           Logger.log(formCountError);
         }
