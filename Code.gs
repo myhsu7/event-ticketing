@@ -1695,3 +1695,130 @@ function sendTelegramMessage(text) {
     Logger.log("發送 Telegram 訊息失敗: " + e.toString());
   }
 }
+
+/**
+ * 手動執行：發送門票更正信與道歉信
+ * 使用說明：
+ * 1. 請在「匯款對帳」中，將需要補發更正門票的來賓，其「門票發送狀態」欄位手動修改為「更正待發送」。
+ * 2. 執行此函式，系統會發送更正門票與道歉信給這些來賓，並將狀態更新回「已發送」。
+ */
+function sendApologyAndCorrectedTickets() {
+  var sheet = getActiveResponseSheet();
+  var headerMap = getHeaderMap(sheet);
+  
+  var statusCol = headerMap['對帳狀態'];
+  var uuidCol = headerMap['Ticket UUID'];
+  var emailCol = headerMap['電子郵件地址'] || headerMap['電子郵件'] || headerMap['Email'];
+  var nameCol = headerMap['姓名'] || headerMap['聯絡人姓名'];
+  var ticketStatusCol = headerMap['門票發送狀態'] || headerMap['門票狀態'] || headerMap['入場券發送狀態'];
+  
+  if (!statusCol || !uuidCol || !emailCol || !nameCol || !ticketStatusCol) {
+    Logger.log("找不到對應欄位，請確認標頭包含：'對帳狀態'、'Ticket UUID'、'電子郵件地址'、'姓名'、'門票發送狀態'");
+    return;
+  }
+  
+  var lastRow = sheet.getLastRow();
+  var count = 0;
+  
+  for (var row = 2; row <= lastRow; row++) {
+    var ticketStatus = sheet.getRange(row, ticketStatusCol).getValue().toString().trim();
+    if (ticketStatus === "更正待發送") {
+      var email = sheet.getRange(row, emailCol).getValue().toString().trim();
+      var name = sheet.getRange(row, nameCol).getValue().toString().trim();
+      var uuid = sheet.getRange(row, uuidCol).getValue().toString().trim();
+      
+      // 如果沒有 UUID，自動產生一個
+      if (!uuid) {
+        uuid = Utilities.getUuid();
+        sheet.getRange(row, uuidCol).setValue(uuid);
+      }
+      
+      if (email && name) {
+        try {
+          sendApologyTicketEmail(email, name, uuid);
+          sheet.getRange(row, ticketStatusCol).setValue("已發送");
+          Logger.log("成功寄送更正信與新門票給：" + name + " (" + email + ")");
+          count++;
+        } catch (err) {
+          Logger.log("寄送更正信失敗 Row " + row + ": " + err.toString());
+        }
+      }
+    }
+  }
+  Logger.log("更正信發送完畢，共發出 " + count + " 封信。");
+}
+
+/**
+ * 寄送門票更正信與道歉信範本
+ */
+function sendApologyTicketEmail(email, name, uuid) {
+  var token = getSecretToken();
+  var webAppUrl = getWebAppUrl();
+  
+  if (!webAppUrl) {
+    throw new Error("尚未設定 WEB_APP_URL 指令碼屬性！");
+  }
+  
+  var checkInUrl = webAppUrl + "?uuid=" + uuid + "&token=" + token;
+  var qrCodeImageUrl = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=" + encodeURIComponent(checkInUrl);
+  
+  var gCalLink = getGoogleCalendarLink(EVENT_TITLE, EVENT_START, EVENT_END, EVENT_DESCRIPTION, EVENT_LOCATION);
+  var yCalLink = getYahooCalendarLink(EVENT_TITLE, EVENT_START, EVENT_END, EVENT_DESCRIPTION, EVENT_LOCATION);
+  
+  var startDate = new Date(EVENT_START);
+  var endDate = new Date(EVENT_END);
+  var formattedEventTime = Utilities.formatDate(startDate, "GMT+8", "yyyy年 MM月 dd日 HH:mm") + 
+                           " - " + 
+                           Utilities.formatDate(endDate, "GMT+8", "HH:mm");
+  
+  var subject = "【更正與新門票】exYahoo Summer Party 入場憑證（舊信件門票已失效，請以此信為主）";
+  
+  // 檢查是否為同行票 (例如含有 " (1/3)")
+  var isMultiTicket = name.indexOf("(") !== -1 && name.indexOf("/") !== -1;
+  var forwardTip = "";
+  if (isMultiTicket) {
+    var ticketIndexStr = name.substring(name.indexOf("("));
+    forwardTip = 
+      "<div style='background-color: #fff9db; border-left: 4px solid #f59e0b; padding: 12px; margin: 15px 0; border-radius: 6px; font-size: 13px; color: #744210; text-align: left; line-height: 1.5;'>" +
+        "💡 <strong>轉寄提示：</strong>本信件為您購買的第 " + ticketIndexStr + " 門票。您可以將此信件直接<strong>轉寄給您的同行夥伴</strong>，供其現場掃描入場。" +
+      "</div>";
+  }
+  
+  // 道歉與更正通知區
+  var apologyNotice = 
+    "<div style='background-color: #fee2e2; border-left: 4px solid #ef4444; padding: 15px; margin: 15px 0; border-radius: 8px; font-size: 13.5px; color: #991b1b; text-align: left; line-height: 1.6;'>" +
+      "⚠️ <strong>重要更正啟事：</strong><br>" +
+      "由於先前系統排程對帳位移，導致寄送給您的門票內容（姓名或序號）有誤。<strong>前一封信中的舊 QR Code 已被系統安全作廢失效</strong>，請協助刪除該郵件，並以<strong>本封信內的新門票與 QR Code</strong> 作為活動當天的唯一入場憑證。造成您的困擾，我們深感抱歉！" +
+    "</div>";
+  
+  var htmlBody = 
+    "<div style='font-family: \"Helvetica Neue\", Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);'>" +
+      "<div style='text-align: center; margin-bottom: 20px;'>" +
+        "<h2 style='color: #4f46e5; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.025em;'>exYahoo Summer Party</h2>" +
+        "<p style='color: #6b7280; font-size: 14px; margin: 5px 0 0 0;'>活動入場憑證 (更正版)</p>" +
+      "</div>" +
+      apologyNotice + 
+      "<div style='border-top: 1px dashed #e5e7eb; border-bottom: 1px dashed #e5e7eb; padding: 20px 0; text-align: center;'>" +
+        "<p style='font-size: 16px; color: #1f2937; margin: 0 0 10px 0;'>親愛的 <strong>" + name + "</strong> 您好：</p>" +
+        "<p style='font-size: 14px; color: #4b5563; margin: 0 0 20px 0; line-height: 1.5;'>您的正確門票已重新核發！<br>請妥善保存下方最新 QR Code，於活動當天進場時出示掃描。</p>" +
+        forwardTip +
+        "<div style='background-color: #f9fafb; padding: 15px; display: inline-block; border-radius: 12px; margin-bottom: 15px;'>" +
+          "<img src='" + qrCodeImageUrl + "' alt='Entry QR Code' style='width: 200px; height: 200px; display: block;' />" +
+        "</div>" +
+        "<div style='font-family: monospace; font-size: 11px; color: #9ca3af; margin-top: 5px;'>Ticket ID: " + uuid + "</div>" +
+      "</div>" +
+      "<div style='margin-top: 25px; text-align: center;'>" +
+        "<p style='font-size: 12px; color: #9ca3af; margin: 0 0 15px 0;'>📅 活動時間： " + formattedEventTime + "<br>📍 地點： " + EVENT_LOCATION + "</p>" +
+        "<div style='display: flex; justify-content: center; gap: 10px;'>" +
+          "<a href='" + gCalLink + "' style='background-color: #4285f4; color: white; padding: 8px 16px; text-decoration: none; border-radius: 8px; font-size: 12px; font-weight: 500;'>+ Google 日曆</a>" +
+          "<a href='" + yCalLink + "' style='background-color: #720e9e; color: white; padding: 8px 16px; text-decoration: none; border-radius: 8px; font-size: 12px; font-weight: 500;'>+ Yahoo 日曆</a>" +
+        "</div>" +
+      "</div>" +
+    "</div>";
+    
+  MailApp.sendEmail({
+    to: email,
+    subject: subject,
+    htmlBody: htmlBody
+  });
+}
