@@ -1071,8 +1071,7 @@ function syncPaymentReconciliationSheet(ss) {
   if (reconLastRow <= 1) return;
   
   var reconData = reconSheet.getRange(2, 1, reconLastRow - 1, 13).getValues(); // 讀取 A-M 欄
-  var reconHeaderMap = getHeaderMap(reconSheet);
-  var reconAmountCol = reconHeaderMap['金額'] || reconHeaderMap['交易金額'] || reconHeaderMap['存入金額'] || 6; // 預設第 6 欄 (F)
+  var reconAmountCol = 5; // 強制指定第 5 欄 (E 欄，即收入/存入金額欄位)
   
   // 收集所有「已核發 Ticket UUID」的報名序號，以進行精準隔離
   var finalizedSerials = {};
@@ -1163,7 +1162,11 @@ function syncPaymentReconciliationSheet(ss) {
     // 計算「匯款對帳」中此後五碼所支付的總購票張數 (金額 / 1000)
     var X_tickets = 0;
     for (var k = 0; k < reconGroup.length; k++) {
-      var amountVal = parseFloat(reconGroup[k].values[reconAmountCol - 1]);
+      var rawVal = reconGroup[k].values[5 - 1]; // E 欄 (Col 5)
+      if (typeof rawVal === 'string') {
+        rawVal = rawVal.replace(/[$,\s]/g, ''); // 去除 $、逗號及空格
+      }
+      var amountVal = parseFloat(rawVal);
       if (!isNaN(amountVal) && amountVal > 0) {
         X_tickets += Math.round(amountVal / 1000);
       }
