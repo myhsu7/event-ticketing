@@ -1150,8 +1150,16 @@ function syncPaymentReconciliationSheet(ss) {
     formGroups[lastFive].push({ rowNum: rowNum, values: rowValues });
   }
   
-  // 4. 開始一對一比對與寫入
-  for (var lastFive in bankGroups) {
+  // 4. 開始一對一比對與寫入 (依照原始 Row 升冪排序，並累積 offset 防止位移)
+  var lastFiveKeys = Object.keys(bankGroups);
+  lastFiveKeys.sort(function(a, b) {
+    return bankGroups[a][0].rowNum - bankGroups[b][0].rowNum;
+  });
+  
+  var rowOffset = 0;
+  
+  for (var idx = 0; idx < lastFiveKeys.length; idx++) {
+    var lastFive = lastFiveKeys[idx];
     var reconGroup = bankGroups[lastFive];
     var regGroup = regGroups[lastFive] || [];
     var formGroup = formGroups[lastFive] || [];
@@ -1161,7 +1169,7 @@ function syncPaymentReconciliationSheet(ss) {
     
     // 計算「匯款對帳」中此後五碼所支付的總購票張數 (金額 / 1000)
     var X_tickets = 0;
-    for (var k = 0; k < reconGroup.length; k++) {
+    for (var k = 0; k < X; k++) {
       var rawVal = reconGroup[k].values[5 - 1]; // E 欄 (Col 5)
       if (typeof rawVal === 'string') {
         rawVal = rawVal.replace(/[$,\s]/g, ''); // 去除 $、逗號及空格
@@ -1183,7 +1191,7 @@ function syncPaymentReconciliationSheet(ss) {
     if (Y === 0) {
       // 找不到對應
       for (var k = 0; k < X; k++) {
-        var rowNum = reconGroup[k].rowNum;
+        var rowNum = reconGroup[k].rowNum + rowOffset;
         reconSheet.getRange(rowNum, 8, 1, 3).setValues([["", "", ""]]); // 清空 H, I, J
         reconSheet.getRange(rowNum, 11).setValue("找不到對應：" + lastFive); // K
       }
@@ -1192,7 +1200,7 @@ function syncPaymentReconciliationSheet(ss) {
       if (X === Y) {
         // 筆數完全相符 -> 進行一對一寫入
         for (var k = 0; k < X; k++) {
-          var rowNum = reconGroup[k].rowNum;
+          var rowNum = reconGroup[k].rowNum + rowOffset;
           var serial = regGroup[k].values[2 - 1]; // B: 序號
           var name = regGroup[k].values[3 - 1];   // C: 姓名
           
@@ -1210,7 +1218,7 @@ function syncPaymentReconciliationSheet(ss) {
       } else {
         // 筆數不符但總張數相符 (例如：銀行 1 筆 3000 元，名單有 3 筆資料)
         // 我們需要在對帳表進行「拆單 (Row Splitting)」
-        var baseRow = reconGroup[0].rowNum;
+        var baseRow = reconGroup[0].rowNum + rowOffset;
         var baseValues = reconGroup[0].values; // A-G 欄的銀行資訊
         
         // 插入額外所需的空白列，並複製銀行資訊 (A-G 欄)
@@ -1239,11 +1247,14 @@ function syncPaymentReconciliationSheet(ss) {
           writeRange.getCell(1, 1).setNumberFormat("@");
           writeRange.setValues([["'" + serial, name, email, "匯款完成"]]);
         }
+        
+        // 累加插入的行數到位移變數中
+        rowOffset += neededRows;
       }
     } else {
       // 筆數不符
       for (var k = 0; k < X; k++) {
-        var rowNum = reconGroup[k].rowNum;
+        var rowNum = reconGroup[k].rowNum + rowOffset;
         reconSheet.getRange(rowNum, 8, 1, 3).setValues([["", "", ""]]); // 清空 H, I, J
         reconSheet.getRange(rowNum, 11).setValue("筆數不符：" + lastFive + " (通知張數:" + X_tickets + ", 名單人數:" + Y + ")"); // K
       }
