@@ -54,6 +54,19 @@ function runSendTicketsProduction() {
 }
 
 /**
+ * 手動執行：重新觸發後五碼對帳比對與發信 (不讀取 Gmail)
+ * 當您在「報名名單」或「匯款對帳」手動新增/修正資料後，可執行此函式進行重新比對與補發門票。
+ */
+function runManualSync() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log("=== 開始手動同步與後五碼比對 ===");
+  syncPaymentReconciliationSheet(ss);
+  Logger.log("=== 對帳同步完成，開始處理待發送門票 ===");
+  processPendingTickets(false);
+  Logger.log("=== 手動同步與發信流程執行完畢 ===");
+}
+
+/**
  * 手動執行：測試發送門票 (僅處理「備註」含有 'test' 的資料)
  * 在測試模式下，即使該列已經有 Ticket UUID，也會重新產生並發送，以便重複測試。
  */
