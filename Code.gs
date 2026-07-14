@@ -1074,6 +1074,23 @@ function syncPaymentReconciliationSheet(ss) {
   var reconHeaderMap = getHeaderMap(reconSheet);
   var reconAmountCol = reconHeaderMap['金額'] || reconHeaderMap['交易金額'] || reconHeaderMap['存入金額'] || 6; // 預設第 6 欄 (F)
   
+  // 收集所有「已核發 Ticket UUID」的報名序號，以進行精準隔離
+  var finalizedSerials = {};
+  for (var i = 0; i < reconData.length; i++) {
+    var rowValues = reconData[i];
+    var currentUuid = rowValues[12 - 1]; // L 欄
+    var serialsVal = rowValues[8 - 1];   // H 欄 (對應報名序號)
+    if (currentUuid && serialsVal) {
+      var serials = serialsVal.toString().split(",");
+      for (var s = 0; s < serials.length; s++) {
+        var singleSerial = serials[s].trim();
+        if (singleSerial) {
+          finalizedSerials[singleSerial] = true;
+        }
+      }
+    }
+  }
+  
   // 1. 將「匯款對帳」依 G 欄 (存摺備註，即後五碼，Col 7) 分組
   var bankGroups = {};
   for (var i = 0; i < reconData.length; i++) {
@@ -1102,9 +1119,11 @@ function syncPaymentReconciliationSheet(ss) {
     var rowNum = j + 2;
     var rowValues = regData[j];
     
-    // 如果該列在報名名單中已經是「匯款完成」，代表已經核對過，排除 (隔離保護)
-    var status = rowValues[14 - 1]; // N 欄
-    if (status === "匯款完成") continue;
+    // 隔離保護：如果該列序號已經與某個有 UUID 的對帳列綁定，代表已發過票券，排除
+    var serial = rowValues[2 - 1] ? rowValues[2 - 1].toString().trim() : "";
+    if (serial && finalizedSerials[serial]) {
+      continue;
+    }
     
     var lastFive = normalizeLastFive(rowValues[10 - 1]);
     if (!lastFive) continue;
